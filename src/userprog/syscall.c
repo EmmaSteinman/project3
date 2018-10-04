@@ -33,11 +33,14 @@ syscall_handler (struct intr_frame *f)
     printf("sys halt\n");
   else if (sys_call_id == SYS_EXIT)
     {
+      // TODO: there is definitely more to do here
       printf("sys exit\n");
       // need to get the argument to pass to the call off of the stack
-      void* arg1 = f->esp + 32;
+      void* arg1 = f->esp + 4;
       check_address (arg1);
-      exit (*(int*)arg1);
+      //exit (*(int*)arg1);
+      f->eax = *(int*)arg1;
+      thread_exit();
     }
   else if (sys_call_id == SYS_EXEC)
     printf("sys exec\n");
@@ -76,6 +79,7 @@ syscall_handler (struct intr_frame *f)
   printf ("system call!\n");
   //thread_exit ();
 }
+
 /* New function to check whether an address passed in to a system call
    is valid, i.e. it is not null, it is not a kernel virtual address, and it is
    not unmapped. */
@@ -90,7 +94,7 @@ check_address (void* addr)
   if (addr == NULL || is_kernel_vaddr(addr))
   {
     printf("EXITING\n");
-    process_exit();
+    //process_exit();
     thread_exit();
   }
   uint32_t* pd = thread_current()->pagedir;
@@ -100,17 +104,18 @@ check_address (void* addr)
   if (kernel_addr == NULL)
   {
     printf("EXITING\n");
-    process_exit();
+    //process_exit(); // thread_exit already calls process exit
     thread_exit();
   }
 }
 
 /* Exit system call. Doesn't do anything yet. */
-void
-exit (int status) {
-  printf("%i\n", status);
-  // TODO: actually implement this
-}
+// void
+// exit (int status) {
+//   printf("%i\n", status);
+//   // TODO: actually implement this
+//   thread_exit();
+// }
 
 int
 write (int fd, const void *buffer, unsigned length)
