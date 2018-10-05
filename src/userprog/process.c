@@ -1,3 +1,4 @@
+
 #include "userprog/process.h"
 #include <debug.h>
 #include <inttypes.h>
@@ -68,6 +69,11 @@ process_execute (const char *file_name)
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
+
+  // set the newly created thread's parent
+  struct thread* child_thread = get_thread_all(tid);
+  child_thread->parent = thread_current();
+
   return tid;
 }
 
@@ -112,13 +118,29 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED)
+process_wait (tid_t child_tid)
 {
-  //return -1;
-  // creates an infinite loop so that processes can run
-  // this is NOT the final implementation
-  // TODO: actually implement this
-  while (1) {} // NEW
+  // if the child doesn't actually exist
+  struct thread* child_thread = get_thread_all (child_tid);
+  if (child_thread == NULL)
+    return -1;
+  // if the child's parent is not the current thread
+  else if (child_thread->parent != thread_current())
+    return -1;
+  // if another process has already called process_wait on the child
+  else if (child_thread->process_waiting)
+    return -1;
+
+  sema_down(&child_thread->process_sema);
+
+  // TODO: change return number to exit status
+  // how do we get exit status??
+
+  // return -1 if the thread was killed by an exception
+  if (child_thread->thread_killed)
+    return -1;
+
+  return 1; // change this to the exit status
 }
 
 /* Free the current process's resources. */

@@ -1,9 +1,11 @@
+
 #ifndef THREADS_THREAD_H
 #define THREADS_THREAD_H
 
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -93,10 +95,16 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    struct thread* parent;              /* Parent process thread. */
+    bool process_waiting;               /* Whether a different process has called process_wait() on this thread. */
+    bool thread_killed;                 /* Indicates whether the thread was killed by kill(). */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 #endif
+
+    struct semaphore process_sema;      /* Semaphore to make a process wait while its child executes. */
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
@@ -137,5 +145,8 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+struct thread* get_thread (tid_t tid, struct list* thread_list);
+struct thread* get_thread_all (tid_t tid);
 
 #endif /* threads/thread.h */

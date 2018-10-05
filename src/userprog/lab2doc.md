@@ -42,6 +42,8 @@
 
 > A3: Why does Pintos implement strtok_r() but not strtok()?
 
+According to the `strtok()` man page, `strtok_r()` is thread-safe but `strtok()` is not. We may have multiple threads trying to tokenize strings at the same time, so we need to use a version that is thread-safe.
+
 > A4: In Pintos, the kernel separates commands into a executable name
 > and arguments.  In Unix-like systems, the shell does this
 > separation.  Identify at least two advantages of the Unix approach.
