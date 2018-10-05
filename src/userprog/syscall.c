@@ -43,6 +43,23 @@ syscall_handler (struct intr_frame *f)
       check_address (arg1);
       //exit (*(int*)arg1);
       f->eax = *(int*)arg1;
+
+      // we can get the current thread's parent and change the exit_status
+      // associated with this thread's TID to whatever it's supposed to be
+      // before the thread exits
+      // for this to work, we need to put a new thing in the list of children
+      // whenever we create a new child thread
+      struct list_elem* e;
+      struct thread* cur = thread_current();
+      struct thread* parent = cur->parent;
+      for (e = list_begin (&parent->children); e != list_end (&parent->children);
+           e = list_next (e))
+           {
+             struct tid_elem* te = list_entry(e, struct tid_elem, elem);
+             if (te->tid == cur->tid)
+              te->exit_status = *(int*)arg1;
+           }
+
       thread_exit();
     }
   else if (sys_call_id == SYS_EXEC)

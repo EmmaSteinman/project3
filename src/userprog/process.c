@@ -32,31 +32,14 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
-  // TODO: split file_name on spaces into a filename/executable name and arguments
-  // strtok_r()?
-  // within the command line, multiple spaces are the same as a single space
-  // this part does not necessarily need to be done for user programs to run;
-  // the change in setup_stack is enough for basic programs that don't take
-  // command line arguments
-  // should this be moved below the next chunk of code?
+  const char* a[10];
+  int count = 0;
+  char* s = file_name;
+  char* token, *save_ptr;
 
-  // char s[] = file_name;
-  // char *token, *save_ptr;
-  // int counter = 0;
-  // for (token = strtok_r (s, " ", &save_ptr); token != NULL;
-  //      token = strtok_r (NULL, " ", &save_ptr))
-  //     {
-  //         // save the very first token as the filename
-  //         // to start the process with
-  //         if (count == 0)
-  //         {
-  //           file_name = token;
-  //         }
-  //         // we also need to do something with the rest of the arguments
-  //         // but not quite sure what at this point
-  //         // can we put them on the stack here? has it been set up?
-  //         // maybe put them in a vector and pass them on until we set up the stack
-  //     }
+  for (token = strtok_r (s, " ", &save_ptr); token != NULL;
+       token = strtok_r (NULL, " ", &save_ptr))
+    printf ("'%s'\n", token);
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -71,8 +54,13 @@ process_execute (const char *file_name)
     palloc_free_page (fn_copy);
 
   // set the newly created thread's parent
+  struct thread* cur = thread_current();
   struct thread* child_thread = get_thread_all(tid);
-  child_thread->parent = thread_current();
+  child_thread->parent = cur;
+  struct tid_elem e;
+  e.tid = tid;
+  e.exit_status = -1;
+  list_push_back (&cur->children, &e);
 
   return tid;
 }
@@ -125,22 +113,37 @@ process_wait (tid_t child_tid)
   if (child_thread == NULL)
     return -1;
   // if the child's parent is not the current thread
+  // this may not be how we ultimately want to do this
   else if (child_thread->parent != thread_current())
     return -1;
   // if another process has already called process_wait on the child
   else if (child_thread->process_waiting)
     return -1;
 
+  // wait until we call sema_up when the child thread dies
+  child_thread->process_waiting = true;
   sema_down(&child_thread->process_sema);
-
-  // TODO: change return number to exit status
-  // how do we get exit status??
 
   // return -1 if the thread was killed by an exception
   if (child_thread->thread_killed)
     return -1;
 
-  return 1; // change this to the exit status
+  // go through the parent thread's list of child TIDs and their exit statuses
+  // when we find a child TID that matches child_tid, we save it to return
+  // if we never find a matching TID, we return -1, since this means that
+  // child_tid is not a child of the current thread.
+  struct list_elem* e;
+  struct thread* cur = thread_current();
+  int status = -1; // -1 by default?
+  for (e = list_begin (&cur->children); e != list_end (&cur->children);
+       e = list_next (e))
+       {
+         struct tid_elem* te = list_entry(e, struct tid_elem, elem);
+         if (te->tid == child_tid)
+          status = te->exit_status;
+       }
+
+  return status;
 }
 
 /* Free the current process's resources. */

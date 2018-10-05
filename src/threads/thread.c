@@ -470,6 +470,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->process_waiting = false;
   t->thread_killed = false;
   sema_init(&t->process_sema, 0);
+  list_init(&t->children);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
