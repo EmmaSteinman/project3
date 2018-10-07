@@ -30,16 +30,8 @@ tid_t
 process_execute (const char *file_name)
 {
   char *fn_copy;
+  char* f = file_name;
   tid_t tid;
-
-  const char* a[10];
-  int count = 0;
-  char* s = file_name;
-  char* token, *save_ptr;
-
-  for (token = strtok_r (s, " ", &save_ptr); token != NULL;
-       token = strtok_r (NULL, " ", &save_ptr))
-    printf ("'%s'\n", token);
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -48,8 +40,13 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  // extract ONLY the file name to run the program with
+  char* save_ptr;
+  char* fn = strtok_r(f, " ", &save_ptr);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  //tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (fn, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy);
 
@@ -250,7 +247,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, char *file_name);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -357,7 +354,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, file_name))
     goto done;
 
   /* Start address. */
@@ -480,9 +477,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 }
 
 /* Create a minimal stack by mapping a zeroed page at the top of
-   user virtual memory. */
+   user virtual memory. NEW: also puts the argument of the user
+   program on the stack. */
 static bool
-setup_stack (void **esp)
+setup_stack (void **esp, char *file_name)
 {
   uint8_t *kpage;
   bool success = false;
@@ -492,8 +490,71 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE - 12; // NEW
-        //*esp = PHYS_BASE;
+      {
+        *esp = PHYS_BASE;
+
+        char* args[32];
+        char* argv[32];
+        int argc = 0;
+        char* token, *save_ptr, temp;
+
+        // get the tokens
+        for (token = strtok_r (file_name, " ", &save_ptr); token != NULL;
+            token = strtok_r (NULL, " ", &save_ptr))
+            {
+              args[argc] = token;
+              argc++;
+            }
+        *esp -= 1;
+
+        // write strings to the stack
+        // we need to be dereferencing esp
+        int i;
+        for (i = argc-1; i >=0; i--)
+        {
+          *esp -= strlen(args[i]);
+          // memcpy is from string.c
+          // necessary because we can't directly copy something into the value
+          // at esp since esp is a void pointer pointer
+          memcpy(*esp, args[i], strlen(args[i]));
+          argv[i] = *esp;
+        }
+
+        // word align
+        if ((int)*esp % 4 != 0)
+        {
+          *esp -= 1;
+          uint8_t zero = 0x0;
+          memcpy(*esp, &zero, 1);
+        }
+
+        // null pointer for end of argv
+        *esp -= sizeof(char*);
+        // TODO: do we need to set the values here to 0?
+
+        // argv pointers
+        char** argvptr;
+        for (i = argc-1; i >= 0; i--)
+        {
+          *esp -= sizeof(argv[i]);
+          memcpy(*esp, &argv[i], sizeof(argv[i]));
+          if (i == 0)
+            argvptr = *esp;
+        }
+
+        // pointer to the beginning of argv
+        *esp -= sizeof(argvptr);
+        memcpy(*esp, &argvptr, sizeof(argvptr));
+
+        // argc
+        *esp -= sizeof(argc);
+        memcpy(*esp, &argc, sizeof(argc));
+
+        // fake return address
+        int z = 0;
+        *esp -= sizeof(z);
+        memcpy(*esp, &z, sizeof(z));
+      }
       else
         palloc_free_page (kpage);
     }

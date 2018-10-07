@@ -36,12 +36,9 @@ syscall_handler (struct intr_frame *f)
     printf("sys halt\n");
   else if (sys_call_id == SYS_EXIT)
     {
-      // TODO: there is definitely more to do here
-      printf("sys exit\n");
       // need to get the argument to pass to the call off of the stack
       void* arg1 = f->esp + 4;
       check_address (arg1);
-      //exit (*(int*)arg1);
       f->eax = *(int*)arg1;
 
       // we can get the current thread's parent and change the exit_status
@@ -59,7 +56,8 @@ syscall_handler (struct intr_frame *f)
              if (te->tid == cur->tid)
               te->exit_status = *(int*)arg1;
            }
-
+      printf("%s: exit(%i)\n", cur->name, *(int*)arg1);
+      // TODO: do we need to deallocate some memory before exiting?
       thread_exit();
     }
   else if (sys_call_id == SYS_EXEC)
@@ -78,7 +76,6 @@ syscall_handler (struct intr_frame *f)
     printf("sys read\n");
   else if (sys_call_id == SYS_WRITE)
     {
-      printf("sys write\n");
       // take the 3 arguments to the system call off the stack
       void* arg1 = f->esp + 4;
       check_address (arg1);
@@ -96,7 +93,7 @@ syscall_handler (struct intr_frame *f)
   else if (sys_call_id == SYS_CLOSE)
     printf("sys close\n");
 
-  printf ("system call!\n");
+  //printf ("system call!\n");
   //thread_exit ();
 }
 
@@ -128,14 +125,6 @@ check_address (void* addr)
     thread_exit();
   }
 }
-
-/* Exit system call. Doesn't do anything yet. */
-// void
-// exit (int status) {
-//   printf("%i\n", status);
-//   // TODO: actually implement this
-//   thread_exit();
-// }
 
 int
 write (int fd, const void *buffer, unsigned length)
