@@ -4,6 +4,13 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h" // NEW
+#include "../devices/shutdown.h"
+#include "../devices/input.h"
+#include "../filesys/filesys.h"
+#include "../filesys/file.h"
+#include "threads/synch.h"
+#include "process.h"
+
 
 static void syscall_handler (struct intr_frame *);
 
@@ -12,6 +19,66 @@ syscall_init (void)
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
+
+/* SYS_EXIT */
+void
+sys_exit(struct intr_frame *f) {
+  // need to get the argument to pass to the call off of the stack
+  void* arg1 = f->esp + 4;
+  check_address (arg1);
+  f->eax = *(int*)arg1;
+
+  // we can get the current thread's parent and change the exit_status
+  // associated with this thread's TID to whatever it's supposed to be
+  // before the thread exits
+  // for this to work, we need to put a new thing in the list of children
+  // whenever we create a new child thread
+  struct list_elem* e;
+  struct thread* cur = thread_current();
+  struct thread* parent = cur->parent;
+  for (e = list_begin (&parent->children); e != list_end (&parent->children);
+       e = list_next (e))
+       {
+         struct tid_elem* te = list_entry(e, struct tid_elem, elem);
+         if (te->tid == cur->tid){
+           te->exit_status = *(int*)arg1;
+           break;
+         }
+       }
+  printf("%s: exit(%i)\n", cur->name, *(int*)arg1);
+  // TODO: do we need to deallocate some memory before exiting?
+  thread_exit();
+}
+
+/* SYS_WRITE */
+void sys_write(struct intr_frame *f){
+  /* take the 3 arguments to the system call off the stack */
+  void* sys_write_arg1 = f->esp + 4;
+  check_address (sys_write_arg1);
+  void* sys_write_arg2 = sys_write_arg1 + 4;
+  check_address (sys_write_arg2);
+  void* sys_write_arg3 = sys_write_arg2 + 4;
+  check_address (sys_write_arg3);
+  /* pass the arguments (with correct casts) to write */
+  int ret = write (*(int*)sys_write_arg1, *(char**)sys_write_arg2,
+    *(int*)sys_write_arg3);
+}
+
+/* SYS_EXEC*/
+static tid_t sys_exec(struct intr_frame *f){
+  char *file = f->esp + 4;
+  tid_t ret_pid = -1;
+  if(file && check_address(file))
+    ret_pid = process_execute(file);
+  return ret_pid;
+}
+
+/* SYS_HALT */
+static void sys_halt(){
+  shutdown_power_off();
+}
+
+/* */
 
 static void
 syscall_handler (struct intr_frame *f)
@@ -32,69 +99,52 @@ syscall_handler (struct intr_frame *f)
   int sys_call_id = *(int*)f->esp;
   // TODO: assert to ensure that this is actually a valid syscall number
 
-  if (sys_call_id == SYS_HALT)
-    printf("sys halt\n");
-  else if (sys_call_id == SYS_EXIT)
-    {
-      // need to get the argument to pass to the call off of the stack
-      void* arg1 = f->esp + 4;
-      check_address (arg1);
-      f->eax = *(int*)arg1;
+  switch (sys_call_id){
+    case SYS_HALT:
+      sys_halt();
+      break;
 
-      // we can get the current thread's parent and change the exit_status
-      // associated with this thread's TID to whatever it's supposed to be
-      // before the thread exits
-      // for this to work, we need to put a new thing in the list of children
-      // whenever we create a new child thread
-      struct list_elem* e;
-      struct thread* cur = thread_current();
-      struct thread* parent = cur->parent;
-      for (e = list_begin (&parent->children); e != list_end (&parent->children);
-           e = list_next (e))
-           {
-             struct tid_elem* te = list_entry(e, struct tid_elem, elem);
-             if (te->tid == cur->tid)
-              te->exit_status = *(int*)arg1;
-           }
-      printf("%s: exit(%i)\n", cur->name, *(int*)arg1);
-      // TODO: do we need to deallocate some memory before exiting?
-      thread_exit();
-    }
-  else if (sys_call_id == SYS_EXEC)
-    printf("sys exec\n");
-  else if (sys_call_id == SYS_WAIT)
-    printf("sys wait\n");
-  else if (sys_call_id == SYS_CREATE)
-    printf("sys create\n");
-  else if (sys_call_id == SYS_REMOVE)
-    printf("sys remove\n");
-  else if (sys_call_id == SYS_OPEN)
-    printf("sys open\n");
-  else if (sys_call_id == SYS_FILESIZE)
-    printf("sys filesize\n");
-  else if (sys_call_id == SYS_READ)
-    printf("sys read\n");
-  else if (sys_call_id == SYS_WRITE)
-    {
-      // take the 3 arguments to the system call off the stack
-      void* arg1 = f->esp + 4;
-      check_address (arg1);
-      void* arg2 = arg1 + 4;
-      check_address (arg2);
-      void* arg3 = arg2 + 4;
-      check_address (arg3);
-      // pass the arguments (with correct casts) to write
-      int ret = write (*(int*)arg1, *(char**)arg2, *(int*)arg3);
-    }
-  else if (sys_call_id == SYS_SEEK)
-    printf("sys seek\n");
-  else if (sys_call_id == SYS_TELL)
-    printf("sys tell\n");
-  else if (sys_call_id == SYS_CLOSE)
-    printf("sys close\n");
+    case SYS_EXIT:
+      sys_exit(f);
+      break;
 
-  //printf ("system call!\n");
-  //thread_exit ();
+    case SYS_EXEC:
+      sys_exec(f);
+      break;
+
+    case SYS_WAIT:
+      f->eax = process_wait((tid_t)(f->esp + 4));
+      break;
+
+    case SYS_CREATE:
+      break;
+
+    case SYS_REMOVE:
+      break;
+
+    case SYS_OPEN:
+      break;
+
+    case SYS_FILESIZE:
+      break;
+
+    case SYS_READ:
+      break;
+
+    case SYS_WRITE:
+      sys_write(f);
+      break;
+
+    case SYS_SEEK:
+      break;
+
+    case SYS_TELL:
+      break;
+
+    case SYS_CLOSE:
+      break;
+  }
+
 }
 
 /* New function to check whether an address passed in to a system call
