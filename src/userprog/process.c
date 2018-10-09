@@ -40,15 +40,25 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
-  // extract ONLY the file name to run the program with
-  char* save_ptr;
-  char* fn = strtok_r(f, " ", &save_ptr);
+  // extract ONLY the file name so we can name the process
+  // since strtok_r changes the arg string, we need to make a copy
+  // of file_name before doing this
+  // TODO: we could do tokenization here and pass a char** through,
+  // using the first entry when we need the file name
+  char* copy2, *save_ptr;
+  copy2 = palloc_get_page (0);
+  if (copy2 == NULL)
+    return TID_ERROR;
+  strlcpy (copy2, file_name, PGSIZE);
+  char* fn = strtok_r(copy2, " ", &save_ptr);
 
   /* Create a new thread to execute FILE_NAME. */
-  //tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   tid = thread_create (fn, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
+  {
     palloc_free_page (fn_copy);
+    palloc_free_page (fn);
+  }
 
   // set the newly created thread's parent
   struct thread* cur = thread_current();
@@ -58,7 +68,7 @@ process_execute (const char *file_name)
   e.tid = tid;
   e.exit_status = -1;
   list_push_back (&cur->children, &e);
-
+  palloc_free_page(fn); // free fn to prevent memory leak
   return tid;
 }
 
@@ -273,8 +283,17 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  // make a copy of file_name and extract only the name of the executable
+  char* copy, *save_ptr;
+  copy = palloc_get_page (0);
+  if (copy == NULL)
+    return TID_ERROR;
+  strlcpy (copy, file_name, PGSIZE);
+  char* fn = strtok_r(copy, " ", &save_ptr);
+
   /* Open executable file. */
-  file = filesys_open (file_name);
+  //file = filesys_open (file_name);
+  file = filesys_open (fn);
   if (file == NULL)
     {
       printf ("load: %s: open failed\n", file_name);
@@ -493,12 +512,15 @@ setup_stack (void **esp, char *file_name)
       {
         *esp = PHYS_BASE;
 
+        // put arguments on the stack
         char* args[32];
         char* argv[32];
         int argc = 0;
         char* token, *save_ptr, temp;
 
         // get the tokens
+        // TODO: this does NOT put the null terminating characters at the end of the strings!
+        // we need to put them there ourselves I think!
         for (token = strtok_r (file_name, " ", &save_ptr); token != NULL;
             token = strtok_r (NULL, " ", &save_ptr))
             {
@@ -510,9 +532,10 @@ setup_stack (void **esp, char *file_name)
         // write strings to the stack
         // we need to be dereferencing esp
         int i;
+        char* null_char = '/0';
         for (i = argc-1; i >=0; i--)
         {
-          *esp -= strlen(args[i]);
+          *esp -= strlen(args[i])+1; // subtract 1 more than strlen to include null terminating character
           // memcpy is from string.c
           // necessary because we can't directly copy something into the value
           // at esp since esp is a void pointer pointer

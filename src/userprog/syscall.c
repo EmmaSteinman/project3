@@ -83,9 +83,6 @@ static void sys_halt(){
 static void
 syscall_handler (struct intr_frame *f)
 {
-  // THIS WHOLE THING COULD BE A SWITCH STATEMENT
-  // it probably should be
-
   // there are at most 3 arguments to each system call
   // and each takes up 4 bytes on the stack
 

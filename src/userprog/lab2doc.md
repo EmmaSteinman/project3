@@ -1,3 +1,4 @@
+
 # Project 2 Design Document
 
 > Denison cs372  
@@ -56,6 +57,25 @@ According to the `strtok()` man page, `strtok_r()` is thread-safe but `strtok()`
 > `struct` member, `global` or `static` variable, `typedef`, or
 > enumeration.  Document the purpose of each in 25 words or less.
 
+In the thread struct:
+- `struct list children;`
+- `struct thread* parent;`
+- `struct semaphore process_sema;`
+- `bool process_waiting;`
+- `bool thread_killed;`
+
+Functions:
+- `struct thread* get_thread_all (tid_t tid);`
+
+Structs:
+```struct tid_elem
+  {
+    struct list_elem elem;
+    tid_t tid;
+    int exit_status;
+  };
+```
+
 > B2: Describe how file descriptors are associated with open files.
 > Are file descriptors unique within the entire OS or just within a
 > single process?
@@ -74,6 +94,12 @@ According to the `strtok()` man page, `strtok_r()` is thread-safe but `strtok()`
 
 > B5: Briefly describe your implementation of the "wait" system call
 > and how it interacts with process termination.
+
+Our `wait` system call calls the `process_wait()` function. This function calls `sema_down()` on the child thread's `process_sema` field (i.e., on the thread we are waiting on); just prior to exiting, the child calls `sema_up()` on its `process_sema`, which will wake the sleeping parent thread.
+
+There are a couple of situations where `process_wait()` returns -1, rather than the status of the child thread - if the child thread doesn't exist, if the child thread is not actually this thread's child, if another process is waiting on the child, or if the child is killed by an exception. Each thread struct has a couple new fields to ensure that these things happen. There is a `process_waiting` boolean, which is set to `true` when a parent thread calls `process_wait()`. There is also a `thread_killed` boolean, which is set to `true` only in the `kill()` function.
+
+To ensure that `process_wait()` returns the child thread's exit status in all other cases, we also create a new list field in each thread called `children`. The `list_elem` elements of this thread are part of a struct called `tid_elem`, which also contains a thread ID `tid` and an integer `exit_status`. Each thread has a `children` list that contains each of the thread's children's thread IDs. When a thread exits due to the `exit` system call, we find the `tid_elem` in its parent's `children` list and set that element's `exit_status` to the child's exit status. This must be done in the `exit` system call because this is the only place we have access to an exiting thread's exit code. Then, in `process_wait()`, the parent has access to the exiting child's status, and can simply search its `children` list to find the `exit_status` associated with the correct thread ID. 
 
 > B6: Any access to user program memory at a user-specified address
 > can fail due to a bad pointer value.  Such accesses must cause the
