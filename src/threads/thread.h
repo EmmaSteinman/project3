@@ -101,6 +101,7 @@ struct thread
     struct semaphore process_sema;      /* Semaphore to make a process wait while its child executes. */
     bool process_waiting;               /* Whether a different process has called process_wait() on this thread. */
     bool thread_killed;                 /* Indicates whether the thread was killed by kill(). */
+    bool success;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

@@ -87,6 +87,7 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
+  thread_current()->success = success;
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -135,6 +136,9 @@ process_wait (tid_t child_tid)
   if (child_thread->thread_killed)
     return -1;
 
+  if (!child_thread->success)
+    return -1;
+
   // go through the parent thread's list of child TIDs and their exit statuses
   // when we find a child TID that matches child_tid, we save it to return
   // if we never find a matching TID, we return -1, since this means that
@@ -149,7 +153,6 @@ process_wait (tid_t child_tid)
          if (te->tid == child_tid)
           status = te->exit_status;
        }
-
   return status;
 }
 

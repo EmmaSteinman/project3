@@ -28,11 +28,10 @@ sys_exit(struct intr_frame *f) {
   check_address (arg1, f);
   f->eax = *(int*)arg1;
 
-  // we can get the current thread's parent and change the exit_status
-  // associated with this thread's TID to whatever it's supposed to be
-  // before the thread exits
-  // for this to work, we need to put a new thing in the list of children
-  // whenever we create a new child thread
+  /* we can get the current thread's parent and change the exit_status
+     associated with this thread's TID to whatever it's supposed to be
+     before the thread exits. for this to work, we need to put a new thing in
+     the list of children whenever we create a new child thread. */
   struct list_elem* e;
   struct thread* cur = thread_current();
   struct thread* parent = cur->parent;
@@ -66,10 +65,18 @@ void sys_write(struct intr_frame *f){
 
 /* SYS_EXEC*/
 static tid_t sys_exec(struct intr_frame *f){
-  char *file = f->esp + 4;
+  char **file = f->esp + 4;
   tid_t ret_pid = -1;
-  if(file && check_address(file, f))
-    ret_pid = process_execute(file);
+  int i;
+  for (i = 0; i < sizeof(file); i++)
+    check_address(file+i, f);
+  for (i = 0; i < sizeof(*file); i++)
+    check_address((*file)+i, f);
+  ret_pid = process_execute(*file);
+  // needs to return -1 if the load failed - how do we know if it failed?
+  int ret = process_wait(ret_pid);
+  if (ret == -1)
+    return ret;
   return ret_pid;
 }
 
@@ -121,7 +128,7 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_EXEC:
-      sys_exec(f);
+      f->eax = sys_exec(f);
       break;
 
     case SYS_WAIT:
@@ -166,6 +173,7 @@ syscall_handler (struct intr_frame *f)
 void
 check_address (void* addr, struct intr_frame *f)
 {
+  //printf("check address\n");
   // do we need to do something special to account for the fact that each argument on the
   // stack to a system call gets 4 bytes?
   //TODO: releasing locks?
