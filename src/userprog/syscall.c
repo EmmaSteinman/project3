@@ -25,7 +25,7 @@ void
 sys_exit(struct intr_frame *f) {
   // need to get the argument to pass to the call off of the stack
   void* arg1 = f->esp + 4;
-  check_address (arg1);
+  check_address (arg1, f);
   f->eax = *(int*)arg1;
 
   // we can get the current thread's parent and change the exit_status
@@ -54,11 +54,11 @@ sys_exit(struct intr_frame *f) {
 void sys_write(struct intr_frame *f){
   /* take the 3 arguments to the system call off the stack */
   void* sys_write_arg1 = f->esp + 4;
-  check_address (sys_write_arg1);
+  check_address (sys_write_arg1, f);
   void* sys_write_arg2 = sys_write_arg1 + 4;
-  check_address (sys_write_arg2);
+  check_address (sys_write_arg2, f);
   void* sys_write_arg3 = sys_write_arg2 + 4;
-  check_address (sys_write_arg3);
+  check_address (sys_write_arg3, f);
   /* pass the arguments (with correct casts) to write */
   int ret = write (*(int*)sys_write_arg1, *(char**)sys_write_arg2,
     *(int*)sys_write_arg3);
@@ -68,7 +68,7 @@ void sys_write(struct intr_frame *f){
 static tid_t sys_exec(struct intr_frame *f){
   char *file = f->esp + 4;
   tid_t ret_pid = -1;
-  if(file && check_address(file))
+  if(file && check_address(file, f))
     ret_pid = process_execute(file);
   return ret_pid;
 }
@@ -78,7 +78,22 @@ static void sys_halt(){
   shutdown_power_off();
 }
 
-/* */
+/* SYS_CREATE */
+static bool sys_create(struct intr_frame *f)
+{
+  char **file = f->esp + 4; // how do we get this to be the correct thing?
+  check_address (*file, f);
+  void *size = file + 4;
+  check_address (size, f);
+  // make sure the name of the file isn't empty
+  if (strlen(*file) == 0)
+    return 0;
+  // make sure the name of the file isn't too big
+  // file names must be 14 characters or fewer
+  if (strlen(*file) > 14)
+    return 0;
+  return filesys_create((char*)file, *(int*)size);
+}
 
 static void
 syscall_handler (struct intr_frame *f)
@@ -89,8 +104,8 @@ syscall_handler (struct intr_frame *f)
   // we need to check the address first
   // the system call number is on the user's stack in the user's virtual address space
   // so check the address first
-  // terminate the process if the address is illegal
-  check_address (f->esp);
+  // terminates the process if the address is illegal
+  check_address (f->esp, f);
 
   // if we get to this point, the address is legal
   int sys_call_id = *(int*)f->esp;
@@ -114,6 +129,7 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_CREATE:
+      f->eax = sys_create(f);
       break;
 
     case SYS_REMOVE:
@@ -148,7 +164,7 @@ syscall_handler (struct intr_frame *f)
    is valid, i.e. it is not null, it is not a kernel virtual address, and it is
    not unmapped. */
 void
-check_address (void* addr)
+check_address (void* addr, struct intr_frame *f)
 {
   // do we need to do something special to account for the fact that each argument on the
   // stack to a system call gets 4 bytes?
@@ -157,8 +173,9 @@ check_address (void* addr)
   // if the initial address is null or a kernel address, we definitely need to exit
   if (addr == NULL || is_kernel_vaddr(addr))
   {
-    printf("EXITING\n");
-    //process_exit();
+    *(int*)f->esp = -1;
+    f->esp -= 4;
+    sys_exit(f);
     thread_exit();
   }
   uint32_t* pd = thread_current()->pagedir;
@@ -167,8 +184,9 @@ check_address (void* addr)
   // if the user passed in an unmapped address, we want to exit
   if (kernel_addr == NULL)
   {
-    printf("EXITING\n");
-    //process_exit(); // thread_exit already calls process exit
+    *(int*)f->esp = -1;
+    f->esp -= 4;
+    sys_exit(f);
     thread_exit();
   }
 }
