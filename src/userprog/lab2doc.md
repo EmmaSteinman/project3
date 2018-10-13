@@ -9,8 +9,8 @@
 > Fill in the name and email addresses of your group members.
 
 - Hayley LeBlanc <leblan_h1@denison.edu>
-- FirstName LastName <email@domain.example>
-- FirstName LastName <email@domain.example>
+- Desmond Liang <liang_d1@denison.edu>
+- Bryan Tran <tran_b1@denison.edu>
 
 ## PRELIMINARIES
 
@@ -39,6 +39,14 @@
 > you arrange for the elements of argv[] to be in the right order?
 > How do you avoid overflowing the stack page?
 
+We do all of the argument parsing and passing in the `setup_stack()` function. We initially tried implementing it in `process_start()`, but had trouble getting it to work there. Placing this code in `setup_stack()` makes sense because putting the arguments to a process on the stack is indeed part of setting up the stack for the new process. However, it does require us to also parse the name of the file to load and run earlier on, which is likely not the most efficient way to do it.
+
+In `setup_stack()`, if allocation of the new thread's page is successful, we parse the arguments from the command line using `strtok_r()` and place them in an array of character arrays called `args`. There is an arbitrary limit of 32 arguments per process. Then, we push information onto the stack as specified in the project description, starting at the top of the stack (higher addresses) and going down.
+
+First, we write each string in the in `args` to the stack. Each time we write one string, we save its address on the stack in another array, `argv`. We then write some zeroes to the stack to align following data on the word boundary, and write the contents of `argv` to the stack. Both times we write an array to the stack, we start writing with its last element and end with its first. This ensures that the pointers to the arguments are in the right order. At the end of writing the contents of `argv`, we also save the address of the first argument (the last one we wrote) and write that address to the bottom of the stack as well. This ensures that the program can find the pointers to the actual arguments. At the end, we write `argc` (the number of actual arguments) and a null pointer to the end of the stack.
+
+***HOW DO WE AVOID OVERFLOWING THE STACK PAGE***
+
 #### RATIONALE/JUSTIFICATION
 
 > A3: Why does Pintos implement strtok_r() but not strtok()?
@@ -57,24 +65,53 @@ According to the `strtok()` man page, `strtok_r()` is thread-safe but `strtok()`
 > `struct` member, `global` or `static` variable, `typedef`, or
 > enumeration.  Document the purpose of each in 25 words or less.
 
-In the thread struct:
-- `struct list children;`
-- `struct thread* parent;`
-- `struct semaphore process_sema;`
-- `bool process_waiting;`
-- `bool thread_killed;`
+New fields in the thread struct:
+- `struct list children;` - keeps track of which threads are direct children of this thread.
+- `struct thread* parent;` - keeps track of which thread created this thread.
+- `struct semaphore process_sema;` - used with `process_wait()`. When a thread waits on a child thread, it calls `sema_down()` on the child's `process_sema`; when a child thread exits, it calls `sema_up()` on it.
+- `bool process_waiting;` - keeps track of whether the child's parent thread has called `process_wait()` on it yet.
+- `bool thread_killed;` - saves how the thread died (naturally or being killed by `kill()`).
+- `int exit_status;` - saves the thread's exit status (i.e. what its process returned when the user program exited).
+- `bool success;` - saves whether a `load()` done in this thread was successful or not.
+
+Some of these fields are primarily important AFTER a thread has died. Before a thread dies, these fields are saved into a `dead_elem` item in the `dead_threads` list so that we retain access to them after the thread is deallocated. They are only saved by the thread itself so that we have easy access to all of them in `thread_exit()`.
 
 Functions:
-- `struct thread* get_thread_all (tid_t tid);`
+- `struct thread* get_thread_all (tid_t tid)` in thread.c. Given a thread ID, searches the list of all threads and returns a pointer to the thread associated with that TID, if it exists.
+- `void sys_exit(struct intr_frame *f)` in syscall.c. Implements the `exit` system call.
+- `void sys_write(struct intr_frame *f)` in syscall.c. Implements the `write` system call.
+- `static tid_t sys_exec(struct intr_frame *f)` in syscall.c. Implements the `exec` system call.
+- `static void sys_halt()` in syscall.c. Implements the `halt` system call.
+- `static bool sys_create(struct intr_frame *f)` in syscall.c. Implements the `create` system call.
+- `int sys_wait (struct intr_frame *f)` in syscall.c. Implements the `wait` system call.
+- `void check_address (void* addr, struct intr_frame *f)` in syscall.c. Checks a given address to ensure that the current thread has legal access to it, and kills the thread otherwise.
+- `int write (int fd, const void *buffer, unsigned length)` in syscall.c.
 
-Structs:
-```struct tid_elem
+Structs in thread.h:
+```
+struct tid_elem
   {
     struct list_elem elem;
     tid_t tid;
     int exit_status;
   };
 ```
+The `tid_elem` structure is associated with a thread's `children` list. Each of the `list_elem`s in this list is part of a `tid_elem` struct. We store the TID and exit_status so that we have access to them where we need it, like in `process_wait()`.
+
+- `struct list dead_threads;`
+Stores a list of threads that have died. If we have a lot of threads, this list could potentially cause problems, since we never deallocate information about these threads. However, we do need to keep track of threads that have died (and how they died) to use in `process_wait()`. ***THIS COULD POTENTIALLY BE COMBINED WITH THE CHILD LIST OF A THREAD??***
+
+```
+struct dead_elem
+  {
+    struct list_elem elem;
+    tid_t tid;
+    bool killed;
+    bool success;
+    int exit_status;
+  };
+```
+Contains the `list_elem`s that we put in `dead_threads`. Saves the information that goes with each node in `dead_threads`.
 
 > B2: Describe how file descriptors are associated with open files.
 > Are file descriptors unique within the entire OS or just within a
@@ -95,11 +132,15 @@ Structs:
 > B5: Briefly describe your implementation of the "wait" system call
 > and how it interacts with process termination.
 
-Our `wait` system call calls the `process_wait()` function. This function calls `sema_down()` on the child thread's `process_sema` field (i.e., on the thread we are waiting on); just prior to exiting, the child calls `sema_up()` on its `process_sema`, which will wake the sleeping parent thread.
+Our `sys_wait()` function, which is called by the system call handler when a user process invokes the `wait` system call, simply retrieves the argument to the call and passes it in to `process_wait()`. The `process_wait()` function then takes care of actual waiting, special cases, etc. as its functionality is identical to the `wait` system call's.
 
-There are a couple of situations where `process_wait()` returns -1, rather than the status of the child thread - if the child thread doesn't exist, if the child thread is not actually this thread's child, if another process is waiting on the child, or if the child is killed by an exception. Each thread struct has a couple new fields to ensure that these things happen. There is a `process_waiting` boolean, which is set to `true` when a parent thread calls `process_wait()`. There is also a `thread_killed` boolean, which is set to `true` only in the `kill()` function.
+A lot happens in `process_wait()`. The main idea is that it takes a thread ID, checks to makes sure it is associated with a valid child thread to wait on, and then calls `sema_down()` on that child thread's `process_sema` semaphore field. This blocks the calling parent thread until the child exits and calls `sema_up()` on its own `process_sema`. We then check to ensure that the child exited in a valid way, and retrieve and return its exit status. The child thread and its `process_sema` field disappear shortly after calling `sema_up()` on it, but this does not cause issues because the parent thread is unblocked immediately and we save off all important information about the thread elsewhere before calling `sema_up()`.
 
-To ensure that `process_wait()` returns the child thread's exit status in all other cases, we also create a new list field in each thread called `children`. The `list_elem` elements of this thread are part of a struct called `tid_elem`, which also contains a thread ID `tid` and an integer `exit_status`. Each thread has a `children` list that contains each of the thread's children's thread IDs. When a thread exits due to the `exit` system call, we find the `tid_elem` in its parent's `children` list and set that element's `exit_status` to the child's exit status. This must be done in the `exit` system call because this is the only place we have access to an exiting thread's exit code. Then, in `process_wait()`, the parent has access to the exiting child's status, and can simply search its `children` list to find the `exit_status` associated with the correct thread ID. 
+Since `process_wait()` forces a parent process to wait until the child terminates, it is inherently related to how processes exit. Specifically, a parent thread needs to have access to a lot of information about how a child thread exited, including 1) whether it was killed by `kill()` or exited normally, 2) whether it failed to load the executable to run or not, and 3) what the child's exit status was. We have two ways of storing this information.
+
+The first is in each thread's `children` list. This list stores information about the children that a thread spawned - specifically, their thread IDs and their exit statuses. We update the exit statuses associated with each node in this list when the child thread dies. The main purpose of this list is to allow us to find a dead child thread's exit status, as this information isn't otherwise accessible within `process_wait()`.
+
+The second way that we save information about dead threads is in the global `dead_threads` list. This list uses the `dead_elem` struct to store more information about dead threads, including how they died (killed by `kill()`, stopped due to failed `load()`, exit status) along with their thread IDs. We use this list to 1) allow a parent to return information about a dead child that it hasn't waited on yet and 2) determine how a child died. Again, we push the nodes with this information onto the list right before a thread dies to ensure that the information is, in fact, saved and accessible where we need it.
 
 > B6: Any access to user program memory at a user-specified address
 > can fail due to a bad pointer value.  Such accesses must cause the

@@ -92,6 +92,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&dead_threads);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -281,16 +282,38 @@ void
 thread_exit (void)
 {
   ASSERT (!intr_context ());
-
 #ifdef USERPROG
   process_exit ();
 #endif
 
+  struct thread* cur = thread_current();
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
-  list_remove (&thread_current()->allelem);
+  list_remove (&cur->allelem);
+
+  // TODO: deallocate this stuff at some point? so that we don't get a memory leak?
+  struct dead_elem* el = malloc(sizeof(struct dead_elem));
+  el->tid = cur->tid;
+  el->exit_status = cur->exit_status;
+  if (cur->thread_killed)
+    el->killed = true;
+  else
+    el->killed = false;
+  if (cur->success)
+    el->success = true;
+  else
+    el->success = false;
+  list_push_back (&dead_threads, el);
+
+  // struct list_elem *e;
+  // printf("dead threads size: %i\n", list_size(&dead_threads));
+  // for (e = list_begin (&dead_threads); e != list_end (&dead_threads);
+  //      e = list_next (e))
+  //   {
+  //     printf("dead thread %i\n", list_entry(e, struct dead_elem, elem)->tid);
+  //   }
   sema_up(&thread_current()->process_sema); // NEW
   thread_current ()->status = THREAD_DYING;
   schedule ();
@@ -587,24 +610,6 @@ allocate_tid (void)
 
   return tid;
 }
-
-
-/* Returns the thread associated with a given thread ID tid in a
-   given list of threads. If the thread ID is not found in the list,
-   returns NULL. */
-// struct thread*
-// get_thread (tid_t tid, struct list* thread_list)
-// {
-//   struct list_elem* e;
-//   for (e = list_begin (thread_list); e != list_end (thread_list);
-//        e = list_next (e))
-//       {
-//         struct thread* cur = list_entry(e, struct thread, elem);
-//         if (cur->tid == tid)
-//           return cur;
-//       }
-//   return NULL;
-// }
 
 /* Returns the thread associated with a given thread ID tid in the
    list of all threads. If the thread ID is not found in the list,

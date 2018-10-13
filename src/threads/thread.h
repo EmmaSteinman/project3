@@ -101,7 +101,8 @@ struct thread
     struct semaphore process_sema;      /* Semaphore to make a process wait while its child executes. */
     bool process_waiting;               /* Whether a different process has called process_wait() on this thread. */
     bool thread_killed;                 /* Indicates whether the thread was killed by kill(). */
-    bool success;
+    int exit_status;                    /* Holds the thread's exit status after the program it is running ends. */
+    bool success;                       /* Saves whether a load done in this thread was successful or not. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -117,6 +118,17 @@ struct tid_elem
   {
     struct list_elem elem;
     tid_t tid;
+    int exit_status;
+  };
+
+struct list dead_threads;
+
+struct dead_elem
+  {
+    struct list_elem elem;
+    tid_t tid;
+    bool killed;
+    bool success;
     int exit_status;
   };
 

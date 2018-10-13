@@ -68,6 +68,7 @@ process_execute (const char *file_name)
   e.tid = tid;
   e.exit_status = -1;
   list_push_back (&cur->children, &e);
+
   palloc_free_page(fn); // free fn to prevent memory leak
   return tid;
 }
@@ -87,7 +88,7 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
-  thread_current()->success = success;
+  thread_current()->success = success; // save whether the thread successfully loaded the user process
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -116,42 +117,89 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid)
 {
+  // TODO: clean this up and make it more efficient if possible
+  struct thread* cur = thread_current();
   // if the child doesn't actually exist
   struct thread* child_thread = get_thread_all (child_tid);
   if (child_thread == NULL)
+  {
+    // determine if the thread is on the list of dead threads
+    // TODO: do we need to also check that the dead thread was once a child
+    // of the calling thread?
+    struct list_elem* e;
+    struct dead_elem* de = NULL;
+    for (e = list_begin (&dead_threads); e != list_end (&dead_threads);
+         e = list_next (e))
+      {
+        struct dead_elem* entry = list_entry(e, struct dead_elem, elem);
+        if (entry->tid == child_tid)
+          de = entry;
+      }
+    // if the thread really never existed (or has already been waited on)
+    if (de == NULL)
+      return -1;
+    else // if we found the thread on the list of dead threads, don't wait; immediately return its exit status
+    {
+      // now that we have waited on it once, we want to remove it from the list
+      list_remove(de);
+      // TODO: deallocate de?
+      return de->exit_status;
+    }
+  }
+  if (child_thread->parent != thread_current())
     return -1;
-  // if the child's parent is not the current thread
-  // this may not be how we ultimately want to do this
-  else if (child_thread->parent != thread_current())
-    return -1;
-  // if another process has already called process_wait on the child
-  else if (child_thread->process_waiting)
+  if (child_thread->process_waiting)
     return -1;
 
   // wait until we call sema_up when the child thread dies
   child_thread->process_waiting = true;
   sema_down(&child_thread->process_sema);
 
-  // return -1 if the thread was killed by an exception
-  if (child_thread->thread_killed)
-    return -1;
+  // find the information that we saved about the child thread if it is now dead
+  // TODO: could we potentially save this information in the children list
+  // instead of the dead_threads list so that we only have to do one
+  // search through a list? **update the labdoc if this change is made.**
+  struct dead_elem* de;
+  if (child_thread == NULL)
+  {
+    struct list_elem* e;
+    for (e = list_begin (&dead_threads); e != list_end (&dead_threads);
+         e = list_next (e))
+        {
+          struct dead_elem* loop_de = list_entry(e, struct dead_elem, elem);
+          if (loop_de->tid == child_tid)
+          {
+            de = loop_de;
+            break;
+          }
+        }
+  }
 
-  if (!child_thread->success)
-    return -1;
+  if (de != NULL)
+    if (de->killed)
+      return -1;
+    else if (!de->success)
+      return -1;
 
   // go through the parent thread's list of child TIDs and their exit statuses
   // when we find a child TID that matches child_tid, we save it to return
   // if we never find a matching TID, we return -1, since this means that
   // child_tid is not a child of the current thread.
   struct list_elem* e;
-  struct thread* cur = thread_current();
-  int status = -1; // -1 by default?
+
+  int status = -1; // -1 by default
+  // this still works, even if the thread is dead, because the
+  // tid_elem associated with the dead child doesn't go away when the child dies
   for (e = list_begin (&cur->children); e != list_end (&cur->children);
        e = list_next (e))
        {
          struct tid_elem* te = list_entry(e, struct tid_elem, elem);
          if (te->tid == child_tid)
-          status = te->exit_status;
+         {
+           status = te->exit_status;
+           break;
+           // TODO: remove te from the list of children?
+         }
        }
   return status;
 }

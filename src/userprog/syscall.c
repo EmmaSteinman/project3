@@ -11,6 +11,7 @@
 #include "threads/synch.h"
 #include "process.h"
 
+// TODO: write a function that gets arguments?
 
 static void syscall_handler (struct intr_frame *);
 
@@ -23,7 +24,6 @@ syscall_init (void)
 /* SYS_EXIT */
 void
 sys_exit(struct intr_frame *f) {
-  // need to get the argument to pass to the call off of the stack
   void* arg1 = f->esp + 4;
   check_address (arg1, f);
   f->eax = *(int*)arg1;
@@ -45,11 +45,13 @@ sys_exit(struct intr_frame *f) {
          }
        }
   printf("%s: exit(%i)\n", cur->name, *(int*)arg1);
+  thread_current()->exit_status = *(int*)arg1;
   // TODO: do we need to deallocate some memory before exiting?
   thread_exit();
 }
 
 /* SYS_WRITE */
+// TODO: combine this function with the write() function
 void sys_write(struct intr_frame *f){
   /* take the 3 arguments to the system call off the stack */
   void* sys_write_arg1 = f->esp + 4;
@@ -73,7 +75,8 @@ static tid_t sys_exec(struct intr_frame *f){
   for (i = 0; i < sizeof(*file); i++)
     check_address((*file)+i, f);
   ret_pid = process_execute(*file);
-  // needs to return -1 if the load failed - how do we know if it failed?
+
+  // needs to return -1 if the load failed
   int ret = process_wait(ret_pid);
   if (ret == -1)
     return ret;
@@ -88,7 +91,7 @@ static void sys_halt(){
 /* SYS_CREATE */
 static bool sys_create(struct intr_frame *f)
 {
-  char **file = f->esp + 4; // how do we get this to be the correct thing?
+  char **file = f->esp + 4;
   check_address (*file, f);
   void *size = file + 4;
   check_address (size, f);
@@ -102,9 +105,18 @@ static bool sys_create(struct intr_frame *f)
   return filesys_create((char*)file, *(int*)size);
 }
 
+/* SYS_WAIT */
+int sys_wait (struct intr_frame *f)
+{
+  tid_t* pid = f->esp + 4; 
+  int ret = process_wait(*pid);
+  return ret;
+}
+
 static void
 syscall_handler (struct intr_frame *f)
 {
+  //printf("syscall handler\n");
   // there are at most 3 arguments to each system call
   // and each takes up 4 bytes on the stack
 
@@ -132,7 +144,8 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_WAIT:
-      f->eax = process_wait((tid_t)(f->esp + 4));
+      //f->eax = process_wait((tid_t)(f->esp + 4));
+      f->eax = sys_wait(f);
       break;
 
     case SYS_CREATE:
@@ -173,18 +186,20 @@ syscall_handler (struct intr_frame *f)
 void
 check_address (void* addr, struct intr_frame *f)
 {
-  //printf("check address\n");
   // do we need to do something special to account for the fact that each argument on the
   // stack to a system call gets 4 bytes?
-  //TODO: releasing locks?
+  // TODO: we need to deallocate memory and release locks BEFORE EXITING
+  // TODO: can we find a way to implement this that is more efficient?
+  //   maybe requiring fewer calls to check_address() or something?
 
   // if the initial address is null or a kernel address, we definitely need to exit
   if (addr == NULL || is_kernel_vaddr(addr))
   {
+    // TODO: do we need the same code that is in the if statement below up here as well?
     *(int*)f->esp = -1;
     f->esp -= 4;
     sys_exit(f);
-    thread_exit();
+    //thread_exit();
   }
   uint32_t* pd = thread_current()->pagedir;
   void* kernel_addr = pagedir_get_page(pd, addr);
@@ -192,9 +207,10 @@ check_address (void* addr, struct intr_frame *f)
   // if the user passed in an unmapped address, we want to exit
   if (kernel_addr == NULL)
   {
-    *(int*)f->esp = -1;
-    f->esp -= 4;
-    sys_exit(f);
+    // may need to also put this code pu in the other if statement too
+    struct thread* cur = thread_current();
+    cur->exit_status = -1;
+    printf("%s: exit(%i)\n", cur->name, -1);
     thread_exit();
   }
 }
