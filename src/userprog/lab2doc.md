@@ -45,7 +45,7 @@ In `setup_stack()`, if allocation of the new thread's page is successful, we par
 
 First, we write each string in the in `args` to the stack. Each time we write one string, we save its address on the stack in another array, `argv`. We then write some zeroes to the stack to align following data on the word boundary, and write the contents of `argv` to the stack. Both times we write an array to the stack, we start writing with its last element and end with its first. This ensures that the pointers to the arguments are in the right order. At the end of writing the contents of `argv`, we also save the address of the first argument (the last one we wrote) and write that address to the bottom of the stack as well. This ensures that the program can find the pointers to the actual arguments. At the end, we write `argc` (the number of actual arguments) and a null pointer to the end of the stack.
 
-***HOW DO WE AVOID OVERFLOWING THE STACK PAGE***
+We don't have any specific checks to make sure that we don't overflow the stack page, but the limit on the number of arguments should prevent it in most cases.
 
 #### RATIONALE/JUSTIFICATION
 
@@ -56,6 +56,8 @@ According to the `strtok()` man page, `strtok_r()` is thread-safe but `strtok()`
 > A4: In Pintos, the kernel separates commands into a executable name
 > and arguments.  In Unix-like systems, the shell does this
 > separation.  Identify at least two advantages of the Unix approach.
+
+At least for us, it was difficult to find a location in the kernel code where we could (at last somewhat) efficiently implement argument parsing in a way that actually worked. If we were able to parse the arguments in the shell, this would not be an issue, because the arguments could be separated and saved into an array immediately after they are entered by the user. Thus, it would be an advantage on the designer's end simply because it would be easier to implement. Also, parsing arguments in the shell might allow users to have more control over how they want their arguments to be interpreted - perhaps they could set specific settings with the shell that allow them to use shortcuts or type different things but get the same result. This would not be possible if the kernel parsed the arguments because those settings would have to be programmed beforehand.
 
 ### SYSTEM CALLS
 
@@ -98,8 +100,7 @@ struct tid_elem
 ```
 The `tid_elem` structure is associated with a thread's `children` list. Each of the `list_elem`s in this list is part of a `tid_elem` struct. We store the TID and exit_status so that we have access to them where we need it, like in `process_wait()`.
 
-- `struct list dead_threads;`
-Stores a list of threads that have died. If we have a lot of threads, this list could potentially cause problems, since we never deallocate information about these threads. However, we do need to keep track of threads that have died (and how they died) to use in `process_wait()`. ***THIS COULD POTENTIALLY BE COMBINED WITH THE CHILD LIST OF A THREAD??***
+- `struct list dead_threads;`: Stores a list of threads that have died. If we have a lot of threads, this list could potentially cause problems, since we never deallocate information about these threads. However, we do need to keep track of threads that have died (and how they died) to use in `process_wait()`. ***THIS COULD POTENTIALLY BE COMBINED WITH THE CHILD LIST OF A THREAD??***
 
 ```
 struct dead_elem
@@ -112,6 +113,8 @@ struct dead_elem
   };
 ```
 Contains the `list_elem`s that we put in `dead_threads`. Saves the information that goes with each node in `dead_threads`.
+
+- `struct lock file_lock;`: A lock used to prevent race conditions when we access the file system.
 
 > B2: Describe how file descriptors are associated with open files.
 > Are file descriptors unique within the entire OS or just within a
@@ -162,6 +165,8 @@ The second way that we save information about dead threads is in the global `dea
 > fails, so it cannot return before the new executable has completed
 > loading.  How does your code ensure this?  How is the load
 > success/failure status passed back to the thread that calls "exec"?
+
+The `exec` system call calls `process_execute()`, which calls the functions that end up loading the new child process. If the load fails, we set the child's `exit_status` field to -1. The system call calls `process_wait()` immediately after calling `process_execute()`. This ensures that the parent process waits until the child has exited, either due to successful execution or due to an error like failing to load the executable to run. The `process_wait()` function returns the child's exit status, which will be -1 since that is what we set it to earlier. So, all we have to do in the `exec` system call is save the return value of `process_wait()` and check whether that value is -1. If it is, then `exec` returns -1; if it isn't, `exec` returns the process ID returned by `process_execute()` earlier on.
 
 > B8: Consider parent process P with child process C.  How do you
 > ensure proper synchronization and avoid race conditions when P

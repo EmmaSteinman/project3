@@ -90,6 +90,7 @@ thread_init (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
+  lock_init (&file_lock);
   list_init (&ready_list);
   list_init (&all_list);
   list_init (&dead_threads);
@@ -292,6 +293,7 @@ thread_exit (void)
      when it calls thread_schedule_tail(). */
   intr_disable ();
   list_remove (&cur->allelem);
+  printf("%s: exit(%i)\n", cur->name, cur->exit_status);
 
   // TODO: deallocate this stuff at some point? so that we don't get a memory leak?
   struct dead_elem* el = malloc(sizeof(struct dead_elem));

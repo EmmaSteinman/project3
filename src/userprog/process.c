@@ -1,4 +1,5 @@
 
+
 #include "userprog/process.h"
 #include <debug.h>
 #include <inttypes.h>
@@ -87,8 +88,12 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+  lock_acquire(&file_lock);
   success = load (file_name, &if_.eip, &if_.esp);
+  lock_release(&file_lock);
   thread_current()->success = success; // save whether the thread successfully loaded the user process
+  if (!success)
+    thread_current()->exit_status = -1;
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -178,8 +183,8 @@ process_wait (tid_t child_tid)
   if (de != NULL)
     if (de->killed)
       return -1;
-    else if (!de->success)
-      return -1;
+    // else if (!de->success)
+    //   return -1;
 
   // go through the parent thread's list of child TIDs and their exit statuses
   // when we find a child TID that matches child_tid, we save it to return

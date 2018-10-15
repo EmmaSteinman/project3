@@ -171,4 +171,6 @@ int thread_get_load_avg (void);
 struct thread* get_thread (tid_t tid, struct list* thread_list);
 struct thread* get_thread_all (tid_t tid);
 
+struct lock file_lock; // NEW
+
 #endif /* threads/thread.h */

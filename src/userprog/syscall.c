@@ -12,6 +12,7 @@
 #include "process.h"
 
 // TODO: write a function that gets arguments?
+// TODO: ALL SECTIONS THAT ACCESS FILES SHOULD BE TREATED AS CRITICAL SECTIONS
 
 static void syscall_handler (struct intr_frame *);
 
@@ -44,7 +45,7 @@ sys_exit(struct intr_frame *f) {
            break;
          }
        }
-  printf("%s: exit(%i)\n", cur->name, *(int*)arg1);
+  //printf("%s: exit(%i)\n", cur->name, *(int*)arg1);
   thread_current()->exit_status = *(int*)arg1;
   // TODO: do we need to deallocate some memory before exiting?
   thread_exit();
@@ -102,13 +103,16 @@ static bool sys_create(struct intr_frame *f)
   // file names must be 14 characters or fewer
   if (strlen(*file) > 14)
     return 0;
-  return filesys_create((char*)file, *(int*)size);
+  lock_acquire(&file_lock);
+  int ret = filesys_create((char*)file, *(int*)size);
+  lock_release(&file_lock);
+  return ret;
 }
 
 /* SYS_WAIT */
 int sys_wait (struct intr_frame *f)
 {
-  tid_t* pid = f->esp + 4; 
+  tid_t* pid = f->esp + 4;
   int ret = process_wait(*pid);
   return ret;
 }
@@ -116,7 +120,6 @@ int sys_wait (struct intr_frame *f)
 static void
 syscall_handler (struct intr_frame *f)
 {
-  //printf("syscall handler\n");
   // there are at most 3 arguments to each system call
   // and each takes up 4 bytes on the stack
 
@@ -186,32 +189,36 @@ syscall_handler (struct intr_frame *f)
 void
 check_address (void* addr, struct intr_frame *f)
 {
-  // do we need to do something special to account for the fact that each argument on the
-  // stack to a system call gets 4 bytes?
   // TODO: we need to deallocate memory and release locks BEFORE EXITING
+  // ** do we need a list of all the initialized locks so that we make
+  //    sure that the current thread does not hold any of them??
   // TODO: can we find a way to implement this that is more efficient?
   //   maybe requiring fewer calls to check_address() or something?
 
-  // if the initial address is null or a kernel address, we definitely need to exit
-  if (addr == NULL || is_kernel_vaddr(addr))
+  int i;
+  for (i = 0; i < 4; i++)
   {
-    // TODO: do we need the same code that is in the if statement below up here as well?
-    *(int*)f->esp = -1;
-    f->esp -= 4;
-    sys_exit(f);
-    //thread_exit();
-  }
-  uint32_t* pd = thread_current()->pagedir;
-  void* kernel_addr = pagedir_get_page(pd, addr);
-  // kernel_addr is only NULL if addr points to unmapped virtual memory
-  // if the user passed in an unmapped address, we want to exit
-  if (kernel_addr == NULL)
-  {
-    // may need to also put this code pu in the other if statement too
-    struct thread* cur = thread_current();
-    cur->exit_status = -1;
-    printf("%s: exit(%i)\n", cur->name, -1);
-    thread_exit();
+    // if the initial address is null or a kernel address, we definitely need to exit
+    if (addr+i == NULL || is_kernel_vaddr(addr+i))
+    {
+      struct thread* cur = thread_current();
+      if (lock_held_by_current_thread(&file_lock))
+        lock_release(&file_lock);
+      cur->exit_status = -1;
+      thread_exit();
+    }
+    uint32_t* pd = thread_current()->pagedir;
+    void* kernel_addr = pagedir_get_page(pd, addr+i);
+    // kernel_addr is only NULL if addr points to unmapped virtual memory
+    // if the user passed in an unmapped address, we want to exit
+    if (kernel_addr == NULL)
+    {
+      if (lock_held_by_current_thread(&file_lock))
+        lock_release(&file_lock);
+      struct thread* cur = thread_current();
+      cur->exit_status = -1;
+      thread_exit();
+    }
   }
 }
 
