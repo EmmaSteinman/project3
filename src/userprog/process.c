@@ -31,7 +31,6 @@ tid_t
 process_execute (const char *file_name)
 {
   char *fn_copy;
-  char* f = file_name;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
@@ -68,7 +67,7 @@ process_execute (const char *file_name)
   struct tid_elem e;
   e.tid = tid;
   e.exit_status = -1;
-  list_push_back (&cur->children, &e);
+  list_push_back (&cur->children, &e.elem);
 
   palloc_free_page(fn); // free fn to prevent memory leak
   return tid;
@@ -146,7 +145,7 @@ process_wait (tid_t child_tid)
     else // if we found the thread on the list of dead threads, don't wait; immediately return its exit status
     {
       // now that we have waited on it once, we want to remove it from the list
-      list_remove(de);
+      list_remove(&de->elem);
       // TODO: deallocate de?
       return de->exit_status;
     }
@@ -572,7 +571,7 @@ setup_stack (void **esp, char *file_name)
         char* args[32];
         char* argv[32];
         int argc = 0;
-        char* token, *save_ptr, temp;
+        char* token, *save_ptr;
 
         // get the tokens
         // TODO: this does NOT put the null terminating characters at the end of the strings!
@@ -588,7 +587,6 @@ setup_stack (void **esp, char *file_name)
         // write strings to the stack
         // we need to be dereferencing esp
         int i;
-        char* null_char = '/0';
         for (i = argc-1; i >=0; i--)
         {
           *esp -= strlen(args[i])+1; // subtract 1 more than strlen to include null terminating character
