@@ -307,6 +307,7 @@ thread_exit (void)
     el->success = true;
   else
     el->success = false;
+  el->parent_tid = cur->parent->tid;
   list_push_back (&dead_threads, el);
 
   // struct list_elem *e;

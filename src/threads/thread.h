@@ -130,6 +130,7 @@ struct dead_elem
     bool killed;
     bool success;
     int exit_status;
+    tid_t parent_tid;
   };
 
 /* If false (default), use round-robin scheduler.

@@ -122,21 +122,21 @@ int
 process_wait (tid_t child_tid)
 {
   // TODO: clean this up and make it more efficient if possible
+  // TODO: this probably all has to be in a lock? because we don't want the
+  // threads to change while we're checking validity
   struct thread* cur = thread_current();
-  // if the child doesn't actually exist
   struct thread* child_thread = get_thread_all (child_tid);
+  // if the child is not a living thread
   if (child_thread == NULL)
   {
     // determine if the thread is on the list of dead threads
-    // TODO: do we need to also check that the dead thread was once a child
-    // of the calling thread?
     struct list_elem* e;
     struct dead_elem* de = NULL;
     for (e = list_begin (&dead_threads); e != list_end (&dead_threads);
          e = list_next (e))
       {
         struct dead_elem* entry = list_entry(e, struct dead_elem, elem);
-        if (entry->tid == child_tid)
+        if (entry->tid == child_tid && entry->parent_tid == cur->tid)
           de = entry;
       }
     // if the thread really never existed (or has already been waited on)
@@ -144,12 +144,15 @@ process_wait (tid_t child_tid)
       return -1;
     else // if we found the thread on the list of dead threads, don't wait; immediately return its exit status
     {
-      // now that we have waited on it once, we want to remove it from the list
+      // now that we have waited on it, we want to remove it from the list
       list_remove(&de->elem);
-      // TODO: deallocate de?
-      return de->exit_status;
+      int ret = de->exit_status;
+      free(de);
+      return ret;
     }
   }
+
+  // if the thread associated with child_tid is NOT dead
   if (child_thread->parent != thread_current())
     return -1;
   if (child_thread->process_waiting)
@@ -158,32 +161,6 @@ process_wait (tid_t child_tid)
   // wait until we call sema_up when the child thread dies
   child_thread->process_waiting = true;
   sema_down(&child_thread->process_sema);
-
-  // find the information that we saved about the child thread if it is now dead
-  // TODO: could we potentially save this information in the children list
-  // instead of the dead_threads list so that we only have to do one
-  // search through a list? **update the labdoc if this change is made.**
-  struct dead_elem* de;
-  if (child_thread == NULL)
-  {
-    struct list_elem* e;
-    for (e = list_begin (&dead_threads); e != list_end (&dead_threads);
-         e = list_next (e))
-        {
-          struct dead_elem* loop_de = list_entry(e, struct dead_elem, elem);
-          if (loop_de->tid == child_tid)
-          {
-            de = loop_de;
-            break;
-          }
-        }
-  }
-
-  if (de != NULL)
-    if (de->killed)
-      return -1;
-    // else if (!de->success)
-    //   return -1;
 
   // go through the parent thread's list of child TIDs and their exit statuses
   // when we find a child TID that matches child_tid, we save it to return
@@ -202,7 +179,8 @@ process_wait (tid_t child_tid)
          {
            status = te->exit_status;
            break;
-           // TODO: remove te from the list of children?
+           // TODO: remove te from the list of children? or from the list of dead threads?
+           // TODO: deallocate te?
          }
        }
   return status;
