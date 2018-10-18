@@ -96,13 +96,10 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-    struct list children;               /* A list of child TIDs and their exit statuses for this thread. */
-    struct thread* parent;              /* Parent process thread. */
+
     struct semaphore process_sema;      /* Semaphore to make a process wait while its child executes. */
-    bool process_waiting;               /* Whether a different process has called process_wait() on this thread. */
-    bool thread_killed;                 /* Indicates whether the thread was killed by kill(). */
-    int exit_status;                    /* Holds the thread's exit status after the program it is running ends. */
-    bool success;                       /* Saves whether a load done in this thread was successful or not. */
+    struct thread_elem* element;        /* Element associated with this thread in thread_list. */
+    struct semaphore exec_sema;         /* Semaphore used to synchronize thread creation in process_execute(). */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -113,25 +110,16 @@ struct thread
     unsigned magic;                     /* Detects stack overflow. */
   };
 
-// NEW
-struct tid_elem
+struct thread_elem
   {
     struct list_elem elem;
-    tid_t tid;
+    tid_t* tid;
     int exit_status;
+    struct thread* parent;
+    //struct semaphore exec_sema;
   };
 
-struct list dead_threads;
-
-struct dead_elem
-  {
-    struct list_elem elem;
-    tid_t tid;
-    bool killed;
-    bool success;
-    int exit_status;
-    tid_t parent_tid;
-  };
+struct list thread_list;
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

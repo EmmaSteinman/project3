@@ -26,29 +26,16 @@ syscall_init (void)
 /* SYS_EXIT */
 void
 sys_exit(struct intr_frame *f) {
+
   void* arg1 = f->esp + 4;
   check_address (arg1, f);
   f->eax = *(int*)arg1;
 
-  /* we can get the current thread's parent and change the exit_status
-     associated with this thread's TID to whatever it's supposed to be
-     before the thread exits. for this to work, we need to put a new thing in
-     the list of children whenever we create a new child thread. */
-  struct list_elem* e;
+
   struct thread* cur = thread_current();
-  struct thread* parent = cur->parent;
-  for (e = list_begin (&parent->children); e != list_end (&parent->children);
-       e = list_next (e))
-       {
-         struct tid_elem* te = list_entry(e, struct tid_elem, elem);
-         if (te->tid == cur->tid){
-           te->exit_status = *(int*)arg1;
-           break;
-         }
-       }
-  //printf("%s: exit(%i)\n", cur->name, *(int*)arg1);
-  thread_current()->exit_status = *(int*)arg1;
-  // TODO: do we need to deallocate some memory before exiting?
+
+  cur->element->exit_status = *(int*)arg1;
+  // TODO: deallocate memory before exiting?
   thread_exit();
 }
 
@@ -77,11 +64,6 @@ static tid_t sys_exec(struct intr_frame *f){
   for (i = 0; i < sizeof(*file); i++)
     check_address((*file)+i, f);
   ret_pid = process_execute(*file);
-
-  // needs to return -1 if the load failed
-  int ret = process_wait(ret_pid);
-  if (ret == -1)
-    return ret;
   return ret_pid;
 }
 
@@ -203,21 +185,26 @@ check_address (void* addr, struct intr_frame *f)
     if (addr+i == NULL || is_kernel_vaddr(addr+i))
     {
       struct thread* cur = thread_current();
+      // TODO: release all locks held by the current thread
       if (lock_held_by_current_thread(&file_lock))
         lock_release(&file_lock);
-      cur->exit_status = -1;
+      //cur->exit_status = -1;
+      cur->element->exit_status = -1;
       thread_exit();
     }
+
     uint32_t* pd = thread_current()->pagedir;
     void* kernel_addr = pagedir_get_page(pd, addr+i);
     // kernel_addr is only NULL if addr points to unmapped virtual memory
     // if the user passed in an unmapped address, we want to exit
     if (kernel_addr == NULL)
     {
+      // TODO: release all locks held by the current thread
       if (lock_held_by_current_thread(&file_lock))
         lock_release(&file_lock);
       struct thread* cur = thread_current();
-      cur->exit_status = -1;
+      //cur->exit_status = -1;
+      cur->element->exit_status = -1;
       thread_exit();
     }
   }

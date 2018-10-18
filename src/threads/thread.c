@@ -93,7 +93,8 @@ thread_init (void)
   lock_init (&file_lock);
   list_init (&ready_list);
   list_init (&all_list);
-  list_init (&dead_threads);
+  //list_init (&dead_threads);
+  list_init (&thread_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -181,9 +182,28 @@ thread_create (const char *name, int priority,
   if (t == NULL)
     return TID_ERROR;
 
+  // struct thread_elem* e = malloc(sizeof(struct thread_elem));
+  // t->element = e;
+  // if (t->element == NULL)
+  //   printf("NULL 1\n");
+  // t->element->parent = thread_current();
+  // t->element->exit_status = 0;
+  // //sema_init (&t->element->exec_sema, 0);
+  // list_push_back (&thread_list, &e->elem);
+  // if (t->element == NULL)
+  //   printf("NULL 2\n");
+
   /* Initialize thread. */
   init_thread (t, name, priority);
+
+  struct thread_elem* e = malloc(sizeof(struct thread_elem));
+  t->element = e;
+  t->element->parent = thread_current();
+  t->element->exit_status = 0;
+  list_push_back (&thread_list, &e->elem);
+
   tid = t->tid = allocate_tid ();
+  t->element->tid = tid;
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -199,6 +219,8 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
   sf->ebp = 0;
+
+  //sema_up(&t->exec_sema);
 
   /* Add to run queue. */
   thread_unblock (t);
@@ -288,37 +310,20 @@ thread_exit (void)
 #endif
 
   struct thread* cur = thread_current();
+
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
+
   list_remove (&cur->allelem);
-  printf("%s: exit(%i)\n", cur->name, cur->exit_status);
 
-  // TODO: deallocate this stuff at some point? so that we don't get a memory leak?
-  struct dead_elem* el = malloc(sizeof(struct dead_elem));
-  el->tid = cur->tid;
-  el->exit_status = cur->exit_status;
-  if (cur->thread_killed)
-    el->killed = true;
-  else
-    el->killed = false;
-  if (cur->success)
-    el->success = true;
-  else
-    el->success = false;
-  el->parent_tid = cur->parent->tid;
-  list_push_back (&dead_threads, el);
+  printf("%s: exit(%i)\n", cur->name, cur->element->exit_status);
 
-  // struct list_elem *e;
-  // printf("dead threads size: %i\n", list_size(&dead_threads));
-  // for (e = list_begin (&dead_threads); e != list_end (&dead_threads);
-  //      e = list_next (e))
-  //   {
-  //     printf("dead thread %i\n", list_entry(e, struct dead_elem, elem)->tid);
-  //   }
   sema_up(&thread_current()->process_sema); // NEW
+
   thread_current ()->status = THREAD_DYING;
+
   schedule ();
   NOT_REACHED ();
 }
@@ -491,13 +496,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
 
-  // NEW
-  t->parent = NULL;
-  t->process_waiting = false;
-  t->thread_killed = false;
-  t->success = true;
   sema_init(&t->process_sema, 0);
-  list_init(&t->children);
+  sema_init(&t->exec_sema, 0);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

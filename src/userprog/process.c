@@ -54,20 +54,27 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (fn, PRI_DEFAULT, start_process, fn_copy);
+  sema_down(&thread_current()->exec_sema);
   if (tid == TID_ERROR)
   {
     palloc_free_page (fn_copy);
     palloc_free_page (fn);
   }
-
-  // set the newly created thread's parent
-  struct thread* cur = thread_current();
   struct thread* child_thread = get_thread_all(tid);
-  child_thread->parent = cur;
-  struct tid_elem e;
-  e.tid = tid;
-  e.exit_status = -1;
-  list_push_back (&cur->children, &e.elem);
+
+  // TODO: is there a way to do this without iterating through the list?
+  //       maybe using more sophisticated synchronization?
+  if (child_thread == NULL)
+    {
+      struct list_elem* e;
+      for (e = list_begin (&thread_list); e != list_end (&thread_list);
+            e = list_next (e))
+      {
+        struct thread_elem* entry = list_entry(e, struct thread_elem, elem);
+        if (entry->exit_status == -1 && entry->tid == tid)
+          return -1;
+      }
+    }
 
   palloc_free_page(fn); // free fn to prevent memory leak
   return tid;
@@ -78,9 +85,11 @@ process_execute (const char *file_name)
 static void
 start_process (void *file_name_)
 {
+  //sema_down(&thread_current()->exec_sema);
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
+  struct thread* cur = thread_current();
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -90,14 +99,16 @@ start_process (void *file_name_)
   lock_acquire(&file_lock);
   success = load (file_name, &if_.eip, &if_.esp);
   lock_release(&file_lock);
-  thread_current()->success = success; // save whether the thread successfully loaded the user process
-  if (!success)
-    thread_current()->exit_status = -1;
-
+  //sema_up(&cur->element->parent->exec_sema);
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success)
+  {
+    cur->element->exit_status = -1;
+    sema_up(&cur->element->parent->exec_sema);
     thread_exit ();
+  }
+  sema_up(&cur->element->parent->exec_sema);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -121,69 +132,42 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid)
 {
-  // TODO: clean this up and make it more efficient if possible
-  // TODO: this probably all has to be in a lock? because we don't want the
-  // threads to change while we're checking validity
+
+  // TODO: should this all be in a lock?
+  // TODO: deallocate a thread_elem if it, its parent, and its children have all died
+  //       - we might be able to do this in the first for loop below? update labdoc when you do this
   struct thread* cur = thread_current();
   struct thread* child_thread = get_thread_all (child_tid);
-  // if the child is not a living thread
+  struct thread_elem* elem;
   if (child_thread == NULL)
   {
-    // determine if the thread is on the list of dead threads
     struct list_elem* e;
-    struct dead_elem* de = NULL;
-    for (e = list_begin (&dead_threads); e != list_end (&dead_threads);
-         e = list_next (e))
-      {
-        struct dead_elem* entry = list_entry(e, struct dead_elem, elem);
-        if (entry->tid == child_tid && entry->parent_tid == cur->tid)
-          de = entry;
-      }
-    // if the thread really never existed (or has already been waited on)
-    if (de == NULL)
-      return -1;
-    else // if we found the thread on the list of dead threads, don't wait; immediately return its exit status
+    for (e = list_begin (&thread_list); e != list_end (&thread_list);
+          e = list_next (e))
     {
-      // now that we have waited on it, we want to remove it from the list
-      list_remove(&de->elem);
-      int ret = de->exit_status;
-      free(de);
-      return ret;
+      struct thread_elem* entry = list_entry(e, struct thread_elem, elem);
+      if (entry->tid == child_tid && entry->parent == cur)
+      {
+        int status = entry->exit_status;
+        list_remove(&entry->elem);
+        free(entry);
+        return status;
+      }
     }
+    return -1;
+  }
+  else {
+    elem = child_thread->element;
+    if (elem->parent != cur)
+      return -1;
   }
 
-  // if the thread associated with child_tid is NOT dead
-  if (child_thread->parent != thread_current())
-    return -1;
-  if (child_thread->process_waiting)
-    return -1;
 
-  // wait until we call sema_up when the child thread dies
-  child_thread->process_waiting = true;
   sema_down(&child_thread->process_sema);
 
-  // go through the parent thread's list of child TIDs and their exit statuses
-  // when we find a child TID that matches child_tid, we save it to return
-  // if we never find a matching TID, we return -1, since this means that
-  // child_tid is not a child of the current thread.
-  struct list_elem* e;
-
-  int status = -1; // -1 by default
-  // this still works, even if the thread is dead, because the
-  // tid_elem associated with the dead child doesn't go away when the child dies
-  for (e = list_begin (&cur->children); e != list_end (&cur->children);
-       e = list_next (e))
-       {
-         struct tid_elem* te = list_entry(e, struct tid_elem, elem);
-         if (te->tid == child_tid)
-         {
-           status = te->exit_status;
-           break;
-           // TODO: remove te from the list of children? or from the list of dead threads?
-           // TODO: deallocate te?
-         }
-       }
-  return status;
+  list_remove(&elem->elem);
+  free(elem);
+  return elem->exit_status;
 }
 
 /* Free the current process's resources. */

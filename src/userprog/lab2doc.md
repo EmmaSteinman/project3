@@ -67,16 +67,11 @@ At least for us, it was difficult to find a location in the kernel code where we
 > `struct` member, `global` or `static` variable, `typedef`, or
 > enumeration.  Document the purpose of each in 25 words or less.
 
-New fields in the thread struct:
-- `struct list children;` - keeps track of which threads are direct children of this thread.
-- `struct thread* parent;` - keeps track of which thread created this thread.
-- `struct semaphore process_sema;` - used with `process_wait()`. When a thread waits on a child thread, it calls `sema_down()` on the child's `process_sema`; when a child thread exits, it calls `sema_up()` on it.
-- `bool process_waiting;` - keeps track of whether the child's parent thread has called `process_wait()` on it yet.
-- `bool thread_killed;` - saves how the thread died (naturally or being killed by `kill()`).
-- `int exit_status;` - saves the thread's exit status (i.e. what its process returned when the user program exited).
-- `bool success;` - saves whether a `load()` done in this thread was successful or not.
+New fields in `thread` struct:
 
-Some of these fields are primarily important AFTER a thread has died. Before a thread dies, these fields are saved into a `dead_elem` item in the `dead_threads` list so that we retain access to them after the thread is deallocated. They are only saved by the thread itself so that we have easy access to all of them in `thread_exit()`.
+- `struct semaphore process_sema;`: a semaphore used by `process_wait()` to block a parent thread until its child is finished executing.
+- `struct thread_elem* element;`: the node associated with this thread in the `thread_list` list.
+- `struct semaphore exec_sema;`: a semaphore used to synchronize thread creation with `process_execute()`.
 
 Functions:
 - `struct thread* get_thread_all (tid_t tid)` in thread.c. Given a thread ID, searches the list of all threads and returns a pointer to the thread associated with that TID, if it exists.
@@ -89,32 +84,23 @@ Functions:
 - `void check_address (void* addr, struct intr_frame *f)` in syscall.c. Checks a given address to ensure that the current thread has legal access to it, and kills the thread otherwise.
 - `int write (int fd, const void *buffer, unsigned length)` in syscall.c.
 
-Structs in thread.h:
-```
-struct tid_elem
-  {
-    struct list_elem elem;
-    tid_t tid;
-    int exit_status;
-  };
-```
-The `tid_elem` structure is associated with a thread's `children` list. Each of the `list_elem`s in this list is part of a `tid_elem` struct. We store the TID and exit_status so that we have access to them where we need it, like in `process_wait()`.
+New declarations in thread.h:
 
-- `struct list dead_threads;`: Stores a list of threads that have died. If we have a lot of threads, this list could potentially cause problems, since we never deallocate information about these threads. However, we do need to keep track of threads that have died (and how they died) to use in `process_wait()`. ***THIS COULD POTENTIALLY BE COMBINED WITH THE CHILD LIST OF A THREAD??***
+- `struct list thread_list;`: a list where each node is associated with a thread that is either currently alive (blocked, running, or ready) or a thread that has recently died. Each `list_elem` in this list is part of a `thread_elem` struct. We remove elements from the list once the associated thread has been waited on once by its parent.
 
 ```
-struct dead_elem
+struct thread_elem
   {
     struct list_elem elem;
-    tid_t tid;
-    bool killed;
-    bool success;
+    tid_t* tid;
     int exit_status;
+    struct thread* parent;
   };
 ```
-Contains the `list_elem`s that we put in `dead_threads`. Saves the information that goes with each node in `dead_threads`.
+The `thread_elem` struct contains the information associated with each node in the `thread_list` list. The `list_elem` field is inserted into `thread_list`. Each thread points to the `thread_elem` in the list that contains its information, although some `thread_elem`s are associated with dead threads that have been deallocated.
 
 - `struct lock file_lock;`: A lock used to prevent race conditions when we access the file system.
+
 
 > B2: Describe how file descriptors are associated with open files.
 > Are file descriptors unique within the entire OS or just within a
@@ -135,15 +121,7 @@ Contains the `list_elem`s that we put in `dead_threads`. Saves the information t
 > B5: Briefly describe your implementation of the "wait" system call
 > and how it interacts with process termination.
 
-Our `sys_wait()` function, which is called by the system call handler when a user process invokes the `wait` system call, simply retrieves the argument to the call and passes it in to `process_wait()`. The `process_wait()` function then takes care of actual waiting, special cases, etc. as its functionality is identical to the `wait` system call's.
-
-A lot happens in `process_wait()`. The main idea is that it takes a thread ID, checks to makes sure it is associated with a valid child thread to wait on, and then calls `sema_down()` on that child thread's `process_sema` semaphore field. This blocks the calling parent thread until the child exits and calls `sema_up()` on its own `process_sema`. We then check to ensure that the child exited in a valid way, and retrieve and return its exit status. The child thread and its `process_sema` field disappear shortly after calling `sema_up()` on it, but this does not cause issues because the parent thread is unblocked immediately and we save off all important information about the thread elsewhere before calling `sema_up()`.
-
-Since `process_wait()` forces a parent process to wait until the child terminates, it is inherently related to how processes exit. Specifically, a parent thread needs to have access to a lot of information about how a child thread exited, including 1) whether it was killed by `kill()` or exited normally, 2) whether it failed to load the executable to run or not, and 3) what the child's exit status was. We have two ways of storing this information.
-
-The first is in each thread's `children` list. This list stores information about the children that a thread spawned - specifically, their thread IDs and their exit statuses. We update the exit statuses associated with each node in this list when the child thread dies. The main purpose of this list is to allow us to find a dead child thread's exit status, as this information isn't otherwise accessible within `process_wait()`.
-
-The second way that we save information about dead threads is in the global `dead_threads` list. This list uses the `dead_elem` struct to store more information about dead threads, including how they died (killed by `kill()`, stopped due to failed `load()`, exit status) along with their thread IDs. We use this list to 1) allow a parent to return information about a dead child that it hasn't waited on yet and 2) determine how a child died. Again, we push the nodes with this information onto the list right before a thread dies to ensure that the information is, in fact, saved and accessible where we need it.
+**do this once multi-recurse and multi-oom tests work**
 
 > B6: Any access to user program memory at a user-specified address
 > can fail due to a bad pointer value.  Such accesses must cause the
@@ -166,7 +144,11 @@ The second way that we save information about dead threads is in the global `dea
 > loading.  How does your code ensure this?  How is the load
 > success/failure status passed back to the thread that calls "exec"?
 
-The `exec` system call calls `process_execute()`, which calls the functions that end up loading the new child process. If the load fails, we set the child's `exit_status` field to -1. The system call calls `process_wait()` immediately after calling `process_execute()`. This ensures that the parent process waits until the child has exited, either due to successful execution or due to an error like failing to load the executable to run. The `process_wait()` function returns the child's exit status, which will be -1 since that is what we set it to earlier. So, all we have to do in the `exec` system call is save the return value of `process_wait()` and check whether that value is -1. If it is, then `exec` returns -1; if it isn't, `exec` returns the process ID returned by `process_execute()` earlier on.
+Our `exec` system call calls `process_execute()` in process.c and simply returns the value returned by that function, so all of the synchronization work happens in `process_execute()`. The `process_execute()` function does a bit of work, then calls `thread_create()` to start a new thread in the function `start_process()`. `start_process()` calls `load()` to load the executable for the child process to run in `start_process()`. The parent process needs to wait until the child has attempted to load the executable (successfully or not) before it can continue, because the parent process needs to know whether the load failed before it can return.
+
+We enforce this using a semaphore called `exec_sema` that is part of the parent thread's `thread` struct. Immediately after calling and returning from `thread_create()` (i.e., as soon as possible), we call `sema_down()` on the parent's `exec_sema` to force it to wait. The child process then calls `sema_up()` on this same semaphore once its call to `load()` has finished. If the call wasn't successful, we set the child process's exit code to -1, then call `sema_up()`; otherwise, we just call `sema_up()` as soon as the load is done. Calling `sema_up()` after the child has attempted to load blocks the parent until we know the outcome of `load()`.
+
+Once the parent starts executing again, it checks the child's exit status; if it's -1, we know that the load failed, so we return -1 from `process_execute()`. Otherwise (unless some other unrelated issue has occurred), we return the thread ID of the new child thread.
 
 > B8: Consider parent process P with child process C.  How do you
 > ensure proper synchronization and avoid race conditions when P
