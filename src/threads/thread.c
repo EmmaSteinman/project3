@@ -65,7 +65,7 @@ static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
 static struct thread *next_thread_to_run (void);
 static void init_thread (struct thread *, const char *name, int priority);
-static bool is_thread (struct thread *) UNUSED;
+//static bool is_thread (struct thread *);
 static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
@@ -189,6 +189,8 @@ thread_create (const char *name, int priority,
   t->element = e;
   t->element->parent = thread_current();
   t->element->exit_status = 0;
+  t->element->thread = t;
+  lock_init (&t->element->lock);
   list_push_back (&thread_list, &e->elem);
 
   tid = t->tid = allocate_tid ();
@@ -306,9 +308,10 @@ thread_exit (void)
   intr_disable ();
 
   list_remove (&cur->allelem);
-
+  lock_acquire(&cur->element->lock);
   printf("%s: exit(%i)\n", cur->name, cur->element->exit_status);
-
+  lock_release(&cur->element->lock);
+  release_locks();
   sema_up(&thread_current()->process_sema); // NEW
 
   thread_current ()->status = THREAD_DYING;
@@ -461,7 +464,8 @@ running_thread (void)
 }
 
 /* Returns true if T appears to point to a valid thread. */
-static bool
+// static
+bool
 is_thread (struct thread *t)
 {
   return t != NULL && t->magic == THREAD_MAGIC;

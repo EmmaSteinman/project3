@@ -117,7 +117,8 @@ struct thread_elem
     tid_t* tid;
     int exit_status;
     struct thread* parent;
-    //struct semaphore exec_sema;
+    struct lock lock;
+    struct thread* thread;
   };
 
 struct list thread_list;
@@ -160,6 +161,7 @@ int thread_get_load_avg (void);
 
 struct thread* get_thread (tid_t tid, struct list* thread_list);
 struct thread* get_thread_all (tid_t tid);
+bool is_thread (struct thread *); // originally static & declared in thread.c
 
 struct lock file_lock; // NEW
 

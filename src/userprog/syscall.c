@@ -13,7 +13,6 @@
 #include "process.h"
 
 // TODO: write a function that gets arguments?
-// TODO: ALL SECTIONS THAT ACCESS FILES SHOULD BE TREATED AS CRITICAL SECTIONS
 
 static void syscall_handler (struct intr_frame *);
 
@@ -32,8 +31,9 @@ sys_exit(struct intr_frame *f) {
   f->eax = *(int*)arg1;
 
   struct thread* cur = thread_current();
-
+  lock_acquire(&cur->element->lock);
   cur->element->exit_status = *(int*)arg1;
+  lock_release(&cur->element->lock);
   thread_exit();
 }
 
@@ -113,6 +113,7 @@ syscall_handler (struct intr_frame *f)
   // if we get to this point, the address is legal
   int sys_call_id = *(int*)f->esp;
   // TODO: assert to ensure that this is actually a valid syscall number
+  ASSERT (sys_call_id >= 0 && sys_call_id < 14);
 
   switch (sys_call_id){
     case SYS_HALT:
@@ -179,9 +180,11 @@ check_address (void* addr, struct intr_frame *f)
     // if the initial address is null or a kernel address, we definitely need to exit
     if (addr+i == NULL || is_kernel_vaddr(addr+i))
     {
-      release_locks ();
+      //release_locks ();
       struct thread* cur = thread_current();
+      lock_acquire(&cur->element->lock);
       cur->element->exit_status = -1;
+      lock_release(&cur->element->lock);
       thread_exit();
     }
 
@@ -191,9 +194,11 @@ check_address (void* addr, struct intr_frame *f)
     // if the user passed in an unmapped address, we want to exit
     if (kernel_addr == NULL)
     {
-      release_locks ();
+      //release_locks ();
       struct thread* cur = thread_current();
+      lock_acquire(&cur->element->lock);
       cur->element->exit_status = -1;
+      lock_release(&cur->element->lock);
       thread_exit();
     }
   }

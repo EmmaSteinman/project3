@@ -82,8 +82,10 @@ kill (struct intr_frame *f)
   /* The interrupt frame's code segment value tells us where the
      exception originated. */
   struct thread* cur = thread_current();
+  lock_acquire(&cur->element->lock);
   cur->element->exit_status = -1;
-  release_locks();
+  lock_release(&cur->element->lock);
+  //release_locks();
   switch (f->cs)
     {
     case SEL_UCSEG:

@@ -45,7 +45,31 @@ In `setup_stack()`, if allocation of the new thread's page is successful, we par
 
 First, we write each string in the in `args` to the stack. Each time we write one string, we save its address on the stack in another array, `argv`. We then write some zeroes to the stack to align following data on the word boundary, and write the contents of `argv` to the stack. Both times we write an array to the stack, we start writing with its last element and end with its first. This ensures that the pointers to the arguments are in the right order. At the end of writing the contents of `argv`, we also save the address of the first argument (the last one we wrote) and write that address to the bottom of the stack as well. This ensures that the program can find the pointers to the actual arguments. At the end, we write `argc` (the number of actual arguments) and a null pointer to the end of the stack.
 
-**how do we avoid overflowing the stack page?**
+To avoid overflowing the stack page, we call `is_thread()` at the end of the section of code that pushes arguments onto the stack. This takes advantage of built-in thread functions and fields to check whether the thread's page has been overflowed. Each thread is allocated one 4KB page in memory. This page is organized as follows:
+
+    4 kB +---------------------------------+
+         |          kernel stack           |
+         |                |                |
+         |                |                |
+         |                V                |
+         |         grows downward          |
+         |                                 |
+         |                                 |
+         |                                 |
+         |                                 |
+         |                                 |
+         |                                 |
+         |                                 |
+         |                                 |
+         +---------------------------------+
+         |              magic              |
+         |                :                |
+         |                :                |
+         |               name              |
+         |              status             |
+    0 kB +---------------------------------+
+
+The thread's stack is located at the top of the page, and its `thread` struct is located at the bottom. The thread's `magic` field is located near the top of the `thread` struct, and its only purpose is to be used to check for stack overflow. As the stack grows downward, if it grows too large, it will overwrite the thread's `magic` value early on. So, in order to check for stack overflow, we can just check a thread's `magic` value. If it still matches the global `THREAD_MAGIC` value, then the stack has not overflowed; if it doesn't, then the stack has overflowed and overwritten data at the top of the `thread` struct, and the program should exit. The `is_thread()` function returns `false` if the current thread's `magic` field doesn't match `THREAD_MAGIC`, so we simply call this function and change the `success` variable in `setup_stack()` to `false` if it returns `false`. This causes `setup_stack()` to return `false`, which ultimately causes the call to `load()` in `start_process()` to fail.
 
 #### RATIONALE/JUSTIFICATION
 
@@ -99,6 +123,7 @@ struct thread_elem
     tid_t* tid;
     int exit_status;
     struct thread* parent;
+    struct thread* thread;
   };
 ```
 The `thread_elem` struct contains the information associated with each node in the `thread_list` list. The `list_elem` field is inserted into `thread_list`. Each thread points to the `thread_elem` in the list that contains its information, although some `thread_elem`s are associated with dead threads that have been deallocated.
@@ -145,7 +170,7 @@ If the thread associated with the `child_tid` argument is alive, then the parent
 
 We check all addresses passed into system calls, including the address of the argument passed to the system call handler, in a function called `check_address()`. This function forces a thread to exit if the address passed in is null, if it is a kernel virtual address (i.e. a user program should not be allowed to access it), or if it points to unmapped user virtual memory. We have to check addresses frequently, since we have to do it on every address passed in to a system call, but this checking does not obscure the primary function of code as each check only requires a call to `check_address()`.
 
-If a function does try to pass a bad pointer to a system call, we call `thread_exit()` to kill the thread. This function naturally leads to thread deallocation as part of the thread scheduling process. Beforehand, we call a function called `release_locks()` that iterates through the locks held by the current thread (kept track of in its `locks` list field) and releases each one. This ensures that any thread exiting abnormally does not hold onto any locks, so other threads won't get stuck waiting on a thread that has been killed.
+If a function does try to pass a bad pointer to a system call, we call `thread_exit()` to kill the thread. This function naturally leads to thread deallocation as part of the thread scheduling process. In `thread_exit()`, we call a function called `release_locks()` that iterates through the locks held by the current thread (kept track of in its `locks` list field) and releases each one. This ensures that any thread (exiting abnormally or not, since a user program could call the `exit` system call when it still holds some locks) releases all of its locks before exiting and that no other threads waiting on a lock held by a dying thread is stuck forever.
 
 **definitely need more here, especially after file system calls are written**
 
@@ -168,6 +193,18 @@ Once the parent starts executing again, it checks the child's exit status; if it
 > that all resources are freed in each case?  How about when P
 > terminates without waiting, before C exits?  After C exits?  Are
 > there any special cases?
+
+If P calls `wait(C)` before C exits, P will call `sema_down()` on C's `process_sema` semaphore. C will call `sema_up()` on that semaphore when it exits, unblocking P immediately before C is set to die and be descheduled. This ensures that P does not run until C exits. Before calling `sema_down()`, P removes C from `thread_list` to prevent a strange case where the P tries to wait on C again before finishing `process_wait()` for the first time. After waking back up, P acquires C's exit status and frees the memory allocated for C's `thread_elem`.
+
+If P calls `wait(C)` after C exits, the call to `get_thread_all(child_tid)` in `process_wait()` will return `NULL`, since there is no thread in `all_list` with thread ID `child_tid`. If this happens, we enter a for loop that iterates through all of the threads in `thread_list`, which has a node for each thread (dead or alive) whose parent has not waited on it yet. If we find a node with thread ID `child_tid` in this list, we remove it from the list, deallocate it, and return its exit status without waiting. If we don't find it, we return -1, since either the thread we are trying to wait on never existed or has already been waited on.
+
+In both of the above cases, we remove C's `thread_elem` from `thread_list` as soon as P successfully waits on C. We do this removal in a lock that prevents any other thread from editing C's `thread_elem` to prevent race conditions. As soon as we are done with the contents of the `thread_elem`, we deallocate them using `free()` to prevent memory leaks.
+
+Whenever a thread exits, all of the memory associated with is deallocated except for that associated with its `thread_elem`. This is necessary, because we need to keep the information associated with a C around after it terminates in case P tries to wait on it. However, if P exits before waiting on C, it is not possible for P to wait on C.
+
+If C hasn't exited yet, we want to keep its `thread_elem` around, because it continues to update its `thread_elem` until it dies and deallocating the structure before the thread exits would cause errors. However, once C and P have both exited, we have no reason to keep C's `thread_elem` around. So, in our loop that determines which (if any) `thread_elem`s in `thread_list` are associated with the `child_tid` argument, we also check each entry in the list to see if both the thread it's associated with and its parent are null. If they are, then we remove that `thread_elem` from the list and deallocate it, as we no longer need to access it or any information about it.
+
+Each time we access or change any fields of a `thread_elem` (in `process_wait()` and anywhere else), we acquire the `thread_elem`'s `lock`. This ensures that we prevent race conditions that may occur when both a thread and its parent are looking and/or changing the same field of the same `thread_elem`.
 
 #### RATIONALE
 

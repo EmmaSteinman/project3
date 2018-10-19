@@ -71,8 +71,13 @@ process_execute (const char *file_name)
             e = list_next (e))
       {
         struct thread_elem* entry = list_entry(e, struct thread_elem, elem);
+        lock_acquire(&entry->lock);
         if (entry->exit_status == -1 && entry->tid == tid)
-          return -1;
+          {
+            lock_release(&entry->lock);
+            return -1;
+          }
+        lock_release(&entry->lock);
       }
     }
 
@@ -99,12 +104,14 @@ start_process (void *file_name_)
   lock_acquire(&file_lock);
   success = load (file_name, &if_.eip, &if_.esp);
   lock_release(&file_lock);
-  //sema_up(&cur->element->parent->exec_sema);
+
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success)
   {
+    lock_acquire(&cur->element->lock);
     cur->element->exit_status = -1;
+    lock_release(&cur->element->lock);
     sema_up(&cur->element->parent->exec_sema);
     thread_exit ();
   }
@@ -132,7 +139,6 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid)
 {
-  // TODO: should this all be in a lock? some of it probably should be
   // TODO: deallocate a thread_elem if it, its parent, and its children have all died
   //       - we might be able to do this in the first for loop below? update labdoc when you do this
   struct thread* cur = thread_current();
@@ -145,27 +151,54 @@ process_wait (tid_t child_tid)
           e = list_next (e))
     {
       struct thread_elem* entry = list_entry(e, struct thread_elem, elem);
+      lock_acquire(&entry->lock);
       if (entry->tid == child_tid && entry->parent == cur)
       {
         int status = entry->exit_status;
         list_remove(&entry->elem);
+        lock_release(&entry->lock);
         free(entry);
         return status;
       }
+      // if a thread_elem's thread has died and its parent is null, then
+      // there's no point in keeping this thread_elem around,
+      // since nothing can wait on it and we'll never have to return
+      // its exit status
+      else if (entry->parent == NULL && entry->thread == NULL)
+      {
+        list_remove(&entry->elem);
+        lock_release(&entry->lock);
+        free(entry);
+      }
+      else
+      {
+        lock_release(&entry->lock);
+      }
     }
     return -1;
-  }
-  else {
+  } else {
     elem = child_thread->element;
+    lock_acquire(&elem->lock);
     if (elem->parent != cur)
-      return -1;
+      {
+        lock_release(&elem->lock);
+        return -1;
+      }
+    lock_release(&elem->lock);
   }
+
+  lock_acquire(&elem->lock);
+  list_remove(&elem->elem); // remove the child thread's element from the list since we have now waited on it
+  lock_release(&elem->lock);
 
   sema_down(&child_thread->process_sema);
 
+  lock_acquire(&elem->lock);
   int status = elem->exit_status;
-  list_remove(&elem->elem); // remove the child thread's element from the list since we have now waited on it
+  lock_release(&elem->lock);
+
   free(elem);
+
   return status;
 }
 
@@ -592,6 +625,10 @@ setup_stack (void **esp, char *file_name)
         int z = 0;
         *esp -= sizeof(z);
         memcpy(*esp, &z, sizeof(z));
+
+        // checks for stack overflow
+        if (!is_thread(thread_current()))
+          success = false;
       }
       else
         palloc_free_page (kpage);
