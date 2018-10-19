@@ -83,6 +83,7 @@ kill (struct intr_frame *f)
      exception originated. */
   struct thread* cur = thread_current();
   cur->element->exit_status = -1;
+  release_locks();
   switch (f->cs)
     {
     case SEL_UCSEG:

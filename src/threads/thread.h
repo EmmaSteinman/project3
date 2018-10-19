@@ -100,6 +100,7 @@ struct thread
     struct semaphore process_sema;      /* Semaphore to make a process wait while its child executes. */
     struct thread_elem* element;        /* Element associated with this thread in thread_list. */
     struct semaphore exec_sema;         /* Semaphore used to synchronize thread creation in process_execute(). */
+    struct list locks;                  /* List of locks currently held by this thread. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

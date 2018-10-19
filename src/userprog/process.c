@@ -132,8 +132,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid)
 {
-
-  // TODO: should this all be in a lock?
+  // TODO: should this all be in a lock? some of it probably should be
   // TODO: deallocate a thread_elem if it, its parent, and its children have all died
   //       - we might be able to do this in the first for loop below? update labdoc when you do this
   struct thread* cur = thread_current();
@@ -162,12 +161,12 @@ process_wait (tid_t child_tid)
       return -1;
   }
 
-
   sema_down(&child_thread->process_sema);
 
-  list_remove(&elem->elem);
+  int status = elem->exit_status;
+  list_remove(&elem->elem); // remove the child thread's element from the list since we have now waited on it
   free(elem);
-  return elem->exit_status;
+  return status;
 }
 
 /* Free the current process's resources. */

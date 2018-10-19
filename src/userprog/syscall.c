@@ -31,11 +31,9 @@ sys_exit(struct intr_frame *f) {
   check_address (arg1, f);
   f->eax = *(int*)arg1;
 
-
   struct thread* cur = thread_current();
 
   cur->element->exit_status = *(int*)arg1;
-  // TODO: deallocate memory before exiting?
   thread_exit();
 }
 
@@ -172,23 +170,17 @@ syscall_handler (struct intr_frame *f)
 void
 check_address (void* addr, struct intr_frame *f)
 {
-  // TODO: we need to deallocate memory and release locks BEFORE EXITING
-  // ** do we need a list of all the initialized locks so that we make
-  //    sure that the current thread does not hold any of them??
-  // TODO: can we find a way to implement this that is more efficient?
-  //   maybe requiring fewer calls to check_address() or something?
-
+  // TODO: do we need to do something extra to deallocate memory?
+  //       maybe just ensure synchronization so that the thread is
+  //       deallocated before continuing? idk how that would work
   int i;
   for (i = 0; i < 4; i++)
   {
     // if the initial address is null or a kernel address, we definitely need to exit
     if (addr+i == NULL || is_kernel_vaddr(addr+i))
     {
+      release_locks ();
       struct thread* cur = thread_current();
-      // TODO: release all locks held by the current thread
-      if (lock_held_by_current_thread(&file_lock))
-        lock_release(&file_lock);
-      //cur->exit_status = -1;
       cur->element->exit_status = -1;
       thread_exit();
     }
@@ -199,14 +191,25 @@ check_address (void* addr, struct intr_frame *f)
     // if the user passed in an unmapped address, we want to exit
     if (kernel_addr == NULL)
     {
-      // TODO: release all locks held by the current thread
-      if (lock_held_by_current_thread(&file_lock))
-        lock_release(&file_lock);
+      release_locks ();
       struct thread* cur = thread_current();
-      //cur->exit_status = -1;
       cur->element->exit_status = -1;
       thread_exit();
     }
+  }
+}
+
+/* Releases all locks held by a given thread. Called before a thread
+   exits abnormally. */
+void
+release_locks (void) {
+  struct list_elem* e;
+  struct thread* cur = thread_current();
+  for (e = list_begin (&cur->locks); e != list_end (&cur->locks);
+        e = list_next (e))
+  {
+    struct lock* entry = list_entry(e, struct lock, elem);
+    lock_release(entry);
   }
 }
 

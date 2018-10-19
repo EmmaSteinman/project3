@@ -182,17 +182,6 @@ thread_create (const char *name, int priority,
   if (t == NULL)
     return TID_ERROR;
 
-  // struct thread_elem* e = malloc(sizeof(struct thread_elem));
-  // t->element = e;
-  // if (t->element == NULL)
-  //   printf("NULL 1\n");
-  // t->element->parent = thread_current();
-  // t->element->exit_status = 0;
-  // //sema_init (&t->element->exec_sema, 0);
-  // list_push_back (&thread_list, &e->elem);
-  // if (t->element == NULL)
-  //   printf("NULL 2\n");
-
   /* Initialize thread. */
   init_thread (t, name, priority);
 
@@ -496,8 +485,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
 
-  sema_init(&t->process_sema, 0);
-  sema_init(&t->exec_sema, 0);
+  sema_init (&t->process_sema, 0);
+  sema_init (&t->exec_sema, 0);
+  list_init (&t->locks);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

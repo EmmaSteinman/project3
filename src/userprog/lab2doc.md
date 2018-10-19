@@ -45,7 +45,7 @@ In `setup_stack()`, if allocation of the new thread's page is successful, we par
 
 First, we write each string in the in `args` to the stack. Each time we write one string, we save its address on the stack in another array, `argv`. We then write some zeroes to the stack to align following data on the word boundary, and write the contents of `argv` to the stack. Both times we write an array to the stack, we start writing with its last element and end with its first. This ensures that the pointers to the arguments are in the right order. At the end of writing the contents of `argv`, we also save the address of the first argument (the last one we wrote) and write that address to the bottom of the stack as well. This ensures that the program can find the pointers to the actual arguments. At the end, we write `argc` (the number of actual arguments) and a null pointer to the end of the stack.
 
-We don't have any specific checks to make sure that we don't overflow the stack page, but the limit on the number of arguments should prevent it in most cases.
+**how do we avoid overflowing the stack page?**
 
 #### RATIONALE/JUSTIFICATION
 
@@ -72,6 +72,10 @@ New fields in `thread` struct:
 - `struct semaphore process_sema;`: a semaphore used by `process_wait()` to block a parent thread until its child is finished executing.
 - `struct thread_elem* element;`: the node associated with this thread in the `thread_list` list.
 - `struct semaphore exec_sema;`: a semaphore used to synchronize thread creation with `process_execute()`.
+- `struct list locks;`: a list of locks currently held by this thread.
+
+New fields in `lock` struct:
+- `struct list_elem elem;`: a list element that allows this lock to be added to a thread's `locks` list.
 
 Functions:
 - `struct thread* get_thread_all (tid_t tid)` in thread.c. Given a thread ID, searches the list of all threads and returns a pointer to the thread associated with that TID, if it exists.
@@ -121,7 +125,9 @@ The `thread_elem` struct contains the information associated with each node in t
 > B5: Briefly describe your implementation of the "wait" system call
 > and how it interacts with process termination.
 
-**do this once multi-recurse and multi-oom tests work**
+Our `wait` system call retrieves the process ID to wait on, then calls the `process_wait()` function on that process ID. `process_wait()` first verifies that the child thread to wait on is alive. If it isn't, then the parent process should not wait, so we check `thread_list` to see if the child's `thread_elem` is present in the list. If it isn't, we return -1, because the parent process has already waited on the child or the child never existed in the first place. If it is present, we retrieve and return its `exit_status` and then remove its `thread_elem` from `thread_list` to prevent the parent from waiting on it later.
+
+If the thread associated with the `child_tid` argument is alive, then the parent process calls `sema_down()` on the child's `process_sema` field. The child calls `sema_up()` on this semaphore immediately before it exits, regardless of whether it exited normally or was killed. This unblocks the parent thread immediately, even if the child is deallocated before the parent thread resumes execution. When the parent starts again, it retrieves the child's `exit_status` from its `thread_elem` (which was not a field of the child's `thread` struct and thus was not deallocated with the child), removes the child's `thread_elem` from `thread_list`, frees the child's `thread_elem`'s `malloc`'ed memory, and then returns its exit status. We set the child's exit status to -1 elsewhere if it is killed, so `process_wait()` does not need to check for any extra cases.
 
 > B6: Any access to user program memory at a user-specified address
 > can fail due to a bad pointer value.  Such accesses must cause the
@@ -136,6 +142,12 @@ The `thread_elem` struct contains the information associated with each node in t
 > allocated resources (locks, buffers, etc.) are freed?  In a few
 > paragraphs, describe the strategy or strategies you adopted for
 > managing these issues.  Give an example.
+
+We check all addresses passed into system calls, including the address of the argument passed to the system call handler, in a function called `check_address()`. This function forces a thread to exit if the address passed in is null, if it is a kernel virtual address (i.e. a user program should not be allowed to access it), or if it points to unmapped user virtual memory. We have to check addresses frequently, since we have to do it on every address passed in to a system call, but this checking does not obscure the primary function of code as each check only requires a call to `check_address()`.
+
+If a function does try to pass a bad pointer to a system call, we call `thread_exit()` to kill the thread. This function naturally leads to thread deallocation as part of the thread scheduling process. Beforehand, we call a function called `release_locks()` that iterates through the locks held by the current thread (kept track of in its `locks` list field) and releases each one. This ensures that any thread exiting abnormally does not hold onto any locks, so other threads won't get stuck waiting on a thread that has been killed.
+
+**definitely need more here, especially after file system calls are written**
 
 #### SYNCHRONIZATION
 
