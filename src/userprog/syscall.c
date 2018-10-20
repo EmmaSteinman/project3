@@ -66,7 +66,8 @@ static bool sys_create(struct intr_frame *f)
   if (strlen(*file) > 14)
     return 0;
   lock_acquire(&file_lock);
-  int ret = filesys_create((char*)file, *(int*)size);
+  //printf("%s\n", *(char**)file);
+  int ret = filesys_create(*(char**)file, *(int*)size);
   lock_release(&file_lock);
   return ret;
 }
@@ -89,7 +90,6 @@ int sys_open (const char* file){
 
   lock_acquire(&file_lock);
   file_ptr = filesys_open(file);
-
   if (file_ptr != NULL) {
     /* add file to this thread's fd_list */
     struct thread *t = thread_current();
@@ -102,9 +102,9 @@ int sys_open (const char* file){
     fd = fd_elem->fd;
   }
   lock_release(&file_lock);
-
   return fd;
 }
+
 
 void sys_close (int fd){
   lock_acquire(&file_lock);
@@ -135,6 +135,23 @@ void sys_close (int fd){
 
 }
 
+int
+sys_filesize (int fd)
+{
+  // TODO: add error handling? what do we do if the fd is not in the thread's list of files?
+  struct thread* cur = thread_current();
+  struct list_elem* e;
+  struct file* file;
+  for (e = list_begin (&cur->fd_list); e != list_end (&cur->fd_list);
+       e = list_next (e))
+  {
+    struct fd_elem* entry = list_entry(e, struct fd_elem, elem);
+    if (entry->fd == fd)
+      file = entry->file;
+  }
+  // call file_length on the pointer to the file and return that value
+  return file_length(file);
+}
 
 
 int sys_read(int fd, const void *buffer, unsigned size){
@@ -238,7 +255,7 @@ syscall_handler (struct intr_frame *f)
   // the system call number is on the user's stack in the user's virtual address space
   // so check the address first
   // terminates the process if the address is illegal
-  check_address (f->esp, f);
+  check_address (f->esp);
 
   void* arg1;
   void* arg2;
@@ -256,7 +273,7 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_EXIT:
       arg1 = f->esp + 4;
-      check_address (arg1, f);
+      check_address (arg1);
       sys_exit(*(int*)arg1);
       break;
 
@@ -278,22 +295,25 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_OPEN:
       arg1 = f->esp + 4;
-      check_address (arg1, f);
-      check_address_deref_charptr (arg1);
-      //check_address_deref (arg1, f);
+      check_address (arg1);
+      check_address_deref_charptrptr (arg1);
       f->eax = sys_open(*(char**)arg1);
       break;
 
     case SYS_FILESIZE:
+      arg1 = f->esp + 4;
+      check_address(arg1);
+      f->eax = sys_filesize(*(int*)arg1);
       break;
 
     case SYS_READ:
       arg1 = f->esp + 4;
-      arg2 = f->esp + 8;
+      arg2 = f->esp + 8; // arg2 is the buffer; we need to check it specially?
       arg3 = f->esp + 12;
-      check_address (arg1, f);
-      check_address (arg2, f);
-      check_address (arg3, f);
+      check_address (arg1);
+      check_address (arg2);
+      check_address (arg3);
+      check_address_deref_charptrptr(arg2);
       f->eax = sys_read (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
@@ -301,9 +321,10 @@ syscall_handler (struct intr_frame *f)
       arg1 = f->esp + 4;
       arg2 = f->esp + 8;
       arg3 = f->esp + 12;
-      check_address (arg1, f);
-      check_address (arg2, f);
-      check_address (arg3, f);
+      check_address (arg1);
+      check_address (arg2);
+      check_address (arg3);
+      check_address_deref_charptrptr (arg2);
       f->eax = sys_write (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
@@ -315,7 +336,7 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_CLOSE:
       arg1 = f->esp + 4;
-      check_address (arg1, f);
+      check_address (arg1);
       sys_close(*(int**)arg1);
       break;
   }
@@ -326,7 +347,7 @@ syscall_handler (struct intr_frame *f)
    is valid, i.e. it is not null, it is not a kernel virtual address, and it is
    not unmapped. */
 void
-check_address (void* addr, struct intr_frame *f)
+check_address (void* addr)
 {
   int i;
 
@@ -358,10 +379,10 @@ check_address (void* addr, struct intr_frame *f)
   }
 }
 
-/* Checks whether the thing at a char pointer pointer is valid. Used with
+/* Checks whether the value at a char pointer pointer is valid. Used with
    the open system call. */
 void
-check_address_deref_charptr (void* addr)
+check_address_deref_charptrptr (void* addr)
 {
   if (*(char**)addr == NULL || is_kernel_vaddr(*(char**)addr))
   {
