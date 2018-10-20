@@ -24,15 +24,10 @@ syscall_init (void)
 
 /* SYS_EXIT */
 void
-sys_exit(struct intr_frame *f) {
-
-  void* arg1 = f->esp + 4;
-  check_address (arg1, f);
-  f->eax = *(int*)arg1;
-
+sys_exit(int status) {
   struct thread* cur = thread_current();
   lock_acquire(&cur->element->lock);
-  cur->element->exit_status = *(int*)arg1;
+  cur->element->exit_status = status;
   lock_release(&cur->element->lock);
   thread_exit();
 }
@@ -96,7 +91,7 @@ int sys_open (const char* file){
 
   file_ptr = filesys_open(file);
 
-  if (file_ptr) {
+  if (file_ptr != NULL) {
     /* add file to this thread's fd_list */
     struct thread *t = thread_current();
     struct fd_elem *fd_elem = malloc(sizeof(struct fd_elem));
@@ -112,7 +107,7 @@ int sys_open (const char* file){
   return fd;
 }
 
-int sys_close (int fd){
+void sys_close (int fd){
   lock_acquire(&file_lock);
 
   /* locate our file according to fd */
@@ -127,18 +122,18 @@ int sys_close (int fd){
       fd_close = list_entry (e, struct fd_elem, elem);
       if(fd_close->fd == fd){
         file_ptr = fd_close->file;
-        if(file_ptr){
+        if(file_ptr != NULL){
           file_close(file_ptr);
           list_remove(e);
           t->num_file--;
-          free(fd_close);
+          //free(fd_close); TODO
         }
+        break;
       }
     }
 
   lock_release(&file_lock);
 
-  return 0;
 }
 
 
@@ -150,19 +145,19 @@ int sys_read(int fd, const void *buffer, unsigned size){
   int ret = -1;
 
   /* STDIN */
-  if (fd == STDIN_FILENO){
+  if (fd == 0){
     for (uint32_t i = 0; i < size; i++)
       *(uint8_t*) (buffer + i) = input_getc();
     ret = size;
   }
 
   /* STDOUT */
-  if (fd == STDOUT_FILENO){
+  if (fd == 1){
     ret = -1;
   }
 
   /* OPEN FD */
-  if (fd != STDIN_FILENO && fd != STDOUT_FILENO){
+  if (fd != 0 && fd != 1){
     struct list_elem *e;
     struct fd_elem *fd_read = NULL;
     struct file *file_ptr = NULL;
@@ -177,12 +172,15 @@ int sys_read(int fd, const void *buffer, unsigned size){
           ret = file_read(file_ptr, buffer, size);
         else
           ret = -1;
+
+        break;
+
       }
     }
   }
 
   lock_release(&file_lock);
-
+  //printf("\nIM RETURNING %i\n", ret );
   return ret;
 }
 
@@ -206,7 +204,7 @@ sys_write (int fd, const void *buffer, unsigned size)
   }
 
   /* OPEN FD */
-  if (fd != STDIN_FILENO && fd != STDOUT_FILENO){
+  if (fd != 0 && fd != 1){
     struct list_elem *e;
     struct fd_elem *fd_write = NULL;
     struct file *file_ptr = NULL;
@@ -221,11 +219,14 @@ sys_write (int fd, const void *buffer, unsigned size)
           ret = file_write(file_ptr, buffer, size);
         else
           ret = -1;
+
+        break;
       }
     }
   }
 
   lock_release(&file_lock);
+  return ret;
 }
 
 static void
@@ -255,7 +256,9 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_EXIT:
-      sys_exit(f);
+      arg1 = f->esp + 4;
+      check_address (arg1, f);
+      sys_exit(*(int*)arg1);
       break;
 
     case SYS_EXEC:
@@ -312,7 +315,7 @@ syscall_handler (struct intr_frame *f)
     case SYS_CLOSE:
       arg1 = f->esp + 4;
       check_address (arg1, f);
-      f->eax = sys_close(*(int*)arg1);
+      sys_close(*(int**)arg1);
       break;
   }
 
