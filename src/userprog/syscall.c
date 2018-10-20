@@ -37,20 +37,6 @@ sys_exit(struct intr_frame *f) {
   thread_exit();
 }
 
-/* SYS_WRITE */
-// TODO: combine this function with the write() function
-void sys_write(struct intr_frame *f){
-  /* take the 3 arguments to the system call off the stack */
-  void* sys_write_arg1 = f->esp + 4;
-  check_address (sys_write_arg1, f);
-  void* sys_write_arg2 = sys_write_arg1 + 4;
-  check_address (sys_write_arg2, f);
-  void* sys_write_arg3 = sys_write_arg2 + 4;
-  check_address (sys_write_arg3, f);
-  /* pass the arguments (with correct casts) to write */
-  int ret = write (*(int*)sys_write_arg1, *(char**)sys_write_arg2,
-    *(int*)sys_write_arg3);
-}
 
 /* SYS_EXEC*/
 static tid_t sys_exec(struct intr_frame *f){
@@ -98,6 +84,150 @@ int sys_wait (struct intr_frame *f)
   return ret;
 }
 
+/* function sys_open()
+ * Open file and return file descriptor
+ * return -1 if failed
+ */
+int sys_open (const char* file){
+  int fd = -1;
+  struct file *file_ptr = NULL;
+
+  lock_acquire(&file_lock);
+
+  file_ptr = filesys_open(file);
+
+  if (file_ptr) {
+    /* add file to this thread's fd_list */
+    struct thread *t = thread_current();
+    struct fd_elem *fd_elem = malloc(sizeof(struct fd_elem));
+    fd_elem->fd = t->next_fd;
+    fd_elem->file = file_ptr;
+    list_push_back(&t->fd_list, &fd_elem->elem);
+    t->next_fd++;
+    t->num_file++;
+    fd = fd_elem->fd;
+  }
+  lock_release(&file_lock);
+
+  return fd;
+}
+
+int sys_close (int fd){
+  lock_acquire(&file_lock);
+
+  /* locate our file according to fd */
+  struct list_elem *e;
+  struct fd_elem *fd_close = NULL;
+  struct file *file_ptr = NULL;
+  struct thread *t = thread_current();
+
+  for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list);
+       e = list_next (e))
+    {
+      fd_close = list_entry (e, struct fd_elem, elem);
+      if(fd_close->fd == fd){
+        file_ptr = fd_close->file;
+        if(file_ptr){
+          file_close(file_ptr);
+          list_remove(e);
+          t->num_file--;
+          free(fd_close);
+        }
+      }
+    }
+
+  lock_release(&file_lock);
+
+  return 0;
+}
+
+
+
+int sys_read(int fd, const void *buffer, unsigned size){
+  /* read in file according to input type */
+  lock_acquire(&file_lock);
+
+  int ret = -1;
+
+  /* STDIN */
+  if (fd == STDIN_FILENO){
+    for (uint32_t i = 0; i < size; i++)
+      *(uint8_t*) (buffer + i) = input_getc();
+    ret = size;
+  }
+
+  /* STDOUT */
+  if (fd == STDOUT_FILENO){
+    ret = -1;
+  }
+
+  /* OPEN FD */
+  if (fd != STDIN_FILENO && fd != STDOUT_FILENO){
+    struct list_elem *e;
+    struct fd_elem *fd_read = NULL;
+    struct file *file_ptr = NULL;
+    struct thread *t = thread_current();
+
+    for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list);
+         e = list_next (e)) {
+      fd_read = list_entry (e, struct fd_elem, elem);
+      if(fd_read->fd == fd){
+        file_ptr = fd_read->file;
+        if (file_ptr)
+          ret = file_read(file_ptr, buffer, size);
+        else
+          ret = -1;
+      }
+    }
+  }
+
+  lock_release(&file_lock);
+
+  return ret;
+}
+
+int
+sys_write (int fd, const void *buffer, unsigned size)
+{
+  /* read in file according to input type */
+  lock_acquire(&file_lock);
+
+  int ret = -1;
+
+  /* STDIN */
+  if (fd == 0){
+    ret = -1;
+  }
+
+  /* STDOUT */
+  if (fd == 1){
+    putbuf(buffer, size);
+    ret = size;
+  }
+
+  /* OPEN FD */
+  if (fd != STDIN_FILENO && fd != STDOUT_FILENO){
+    struct list_elem *e;
+    struct fd_elem *fd_write = NULL;
+    struct file *file_ptr = NULL;
+    struct thread *t = thread_current();
+
+    for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list);
+         e = list_next (e)) {
+      fd_write = list_entry (e, struct fd_elem, elem);
+      if(fd_write->fd == fd){
+        file_ptr = fd_write->file;
+        if (file_ptr)
+          ret = file_write(file_ptr, buffer, size);
+        else
+          ret = -1;
+      }
+    }
+  }
+
+  lock_release(&file_lock);
+}
+
 static void
 syscall_handler (struct intr_frame *f)
 {
@@ -109,6 +239,10 @@ syscall_handler (struct intr_frame *f)
   // so check the address first
   // terminates the process if the address is illegal
   check_address (f->esp, f);
+
+  void* arg1;
+  void* arg2;
+  void* arg3;
 
   // if we get to this point, the address is legal
   int sys_call_id = *(int*)f->esp;
@@ -141,16 +275,32 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_OPEN:
+      arg1 = f->esp + 4;
+      check_address (arg1, f);
+      f->eax = sys_open(*(char**)arg1);
       break;
 
     case SYS_FILESIZE:
       break;
 
     case SYS_READ:
+      arg1 = f->esp + 4;
+      arg2 = f->esp + 8;
+      arg3 = f->esp + 12;
+      check_address (arg1, f);
+      check_address (arg2, f);
+      check_address (arg3, f);
+      f->eax = sys_read (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
     case SYS_WRITE:
-      sys_write(f);
+      arg1 = f->esp + 4;
+      arg2 = f->esp + 8;
+      arg3 = f->esp + 12;
+      check_address (arg1, f);
+      check_address (arg2, f);
+      check_address (arg3, f);
+      f->eax = sys_write (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
     case SYS_SEEK:
@@ -160,6 +310,9 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_CLOSE:
+      arg1 = f->esp + 4;
+      check_address (arg1, f);
+      f->eax = sys_close(*(int*)arg1);
       break;
   }
 
@@ -216,13 +369,4 @@ release_locks (void) {
     struct lock* entry = list_entry(e, struct lock, elem);
     lock_release(entry);
   }
-}
-
-int
-write (int fd, const void *buffer, unsigned length)
-{
-  // TODO: implement other kinds of writing
-  if (fd == 1)
-    putbuf(buffer, length);
-  return 0; // should return the number of bytes actually written
 }

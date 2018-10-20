@@ -96,6 +96,7 @@ thread_init (void)
   //list_init (&dead_threads);
   list_init (&thread_list);
 
+
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -488,10 +489,13 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->num_file = 0;
+  t->next_fd = 2; /* start at 2, 0 for STDIN and 1 for STDOUT */
 
   sema_init (&t->process_sema, 0);
   sema_init (&t->exec_sema, 0);
   list_init (&t->locks);
+  list_init (&t->fd_list);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

@@ -83,6 +83,14 @@ typedef int tid_t;
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
 
+struct fd_elem
+  {
+    int fd;
+    struct list_elem elem;
+    struct file *file;
+  };
+
+
 struct thread
   {
     /* Owned by thread.c. */
@@ -95,6 +103,11 @@ struct thread
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+
+    /* file descriptor list */
+    int num_file;
+    int next_fd; /* keep track of fd usage */
+    struct list fd_list;
 
 
     struct semaphore process_sema;      /* Semaphore to make a process wait while its child executes. */
@@ -120,6 +133,9 @@ struct thread_elem
     struct lock lock;
     struct thread* thread;
   };
+
+
+
 
 struct list thread_list;
 
