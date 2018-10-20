@@ -88,7 +88,6 @@ int sys_open (const char* file){
   struct file *file_ptr = NULL;
 
   lock_acquire(&file_lock);
-
   file_ptr = filesys_open(file);
 
   if (file_ptr != NULL) {
@@ -280,6 +279,8 @@ syscall_handler (struct intr_frame *f)
     case SYS_OPEN:
       arg1 = f->esp + 4;
       check_address (arg1, f);
+      check_address_deref_charptr (arg1);
+      //check_address_deref (arg1, f);
       f->eax = sys_open(*(char**)arg1);
       break;
 
@@ -327,10 +328,8 @@ syscall_handler (struct intr_frame *f)
 void
 check_address (void* addr, struct intr_frame *f)
 {
-  // TODO: do we need to do something extra to deallocate memory?
-  //       maybe just ensure synchronization so that the thread is
-  //       deallocated before continuing? idk how that would work
   int i;
+
   for (i = 0; i < 4; i++)
   {
     // if the initial address is null or a kernel address, we definitely need to exit
@@ -343,7 +342,6 @@ check_address (void* addr, struct intr_frame *f)
       lock_release(&cur->element->lock);
       thread_exit();
     }
-
     uint32_t* pd = thread_current()->pagedir;
     void* kernel_addr = pagedir_get_page(pd, addr+i);
     // kernel_addr is only NULL if addr points to unmapped virtual memory
@@ -357,6 +355,34 @@ check_address (void* addr, struct intr_frame *f)
       lock_release(&cur->element->lock);
       thread_exit();
     }
+  }
+}
+
+/* Checks whether the thing at a char pointer pointer is valid. Used with
+   the open system call. */
+void
+check_address_deref_charptr (void* addr)
+{
+  if (*(char**)addr == NULL || is_kernel_vaddr(*(char**)addr))
+  {
+    struct thread* cur = thread_current();
+    lock_acquire(&cur->element->lock);
+    cur->element->exit_status = -1;
+    lock_release(&cur->element->lock);
+    thread_exit();
+  }
+  uint32_t* pd = thread_current()->pagedir;
+  void* kernel_addr = pagedir_get_page(pd, *(char**)addr);
+  // kernel_addr is only NULL if addr points to unmapped virtual memory
+  // if the user passed in an unmapped address, we want to exit
+  if (kernel_addr == NULL)
+  {
+    //release_locks ();
+    struct thread* cur = thread_current();
+    lock_acquire(&cur->element->lock);
+    cur->element->exit_status = -1;
+    lock_release(&cur->element->lock);
+    thread_exit();
   }
 }
 
