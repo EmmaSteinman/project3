@@ -106,9 +106,14 @@ start_process (void *file_name_)
   lock_release(&file_lock);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success)
+  if (success)
   {
+    struct file * file = filesys_open (file_name);
+    file_deny_write (file);
+  }
+  else
+  {
+    palloc_free_page (file_name);
     lock_acquire(&cur->element->lock);
     cur->element->exit_status = -1;
     lock_release(&cur->element->lock);
@@ -123,6 +128,7 @@ start_process (void *file_name_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
+
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -136,6 +142,7 @@ start_process (void *file_name_)
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
+
 int
 process_wait (tid_t child_tid)
 {
