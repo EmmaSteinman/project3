@@ -245,6 +245,60 @@ sys_write (int fd, const void *buffer, unsigned size)
   return ret;
 }
 
+bool sys_remove(const char *file){
+  bool ret = 0;
+  lock_acquire(&file_lock);
+  ret = filesys_remove(file);
+  lock_release(&file_lock);
+  return ret;
+}
+
+void sys_seek(int fd, unsigned position){
+  lock_acquire(&file_lock);
+
+  struct list_elem *e;
+  struct fd_elem *fd_seek = NULL;
+  struct file *file_ptr = NULL;
+  struct thread *t = thread_current();
+
+  for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list);
+       e = list_next (e)) {
+    fd_seek = list_entry (e, struct fd_elem, elem);
+    if(fd_seek->fd == fd){
+      file_ptr = fd_seek->file;
+      if (file_ptr)
+        file_seek(file_ptr, position);
+      break;
+    }
+  }
+
+  lock_release(&file_lock);
+}
+
+unsigned sys_tell(int fd){
+  lock_acquire(&file_lock);
+
+  struct list_elem *e;
+  struct fd_elem *fd_tell = NULL;
+  struct file *file_ptr = NULL;
+  struct thread *t = thread_current();
+  unsigned ret = 0;
+
+  for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list);
+       e = list_next (e)) {
+    fd_tell = list_entry (e, struct fd_elem, elem);
+    if(fd_tell->fd == fd){
+      file_ptr = fd_tell->file;
+      if (file_ptr)
+        ret = file_tell(file_ptr);
+      break;
+    }
+  }
+
+  lock_release(&file_lock);
+  return ret;
+}
+
 static void
 syscall_handler (struct intr_frame *f)
 {
@@ -282,7 +336,6 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_WAIT:
-      //f->eax = process_wait((tid_t)(f->esp + 4));
       f->eax = sys_wait(f);
       break;
 
@@ -291,6 +344,9 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_REMOVE:
+      arg1 = f->esp + 4;
+      check_address (arg1);
+      sys_remove(*(int*)arg1);
       break;
 
     case SYS_OPEN:
@@ -329,9 +385,17 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_SEEK:
+      arg1 = f->esp + 4;
+      arg2 = f->esp + 8;
+      check_address(arg1);
+      check_address(arg2);
+      sys_seek(*(int*)arg1, *(unsigned*)arg2);
       break;
 
     case SYS_TELL:
+      arg1 = f->esp + 4;
+      check_address(arg1);
+      f->eax = sys_tell(*(int*)arg1);
       break;
 
     case SYS_CLOSE:
