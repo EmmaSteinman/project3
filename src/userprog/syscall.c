@@ -34,15 +34,9 @@ sys_exit(int status) {
 
 
 /* SYS_EXEC*/
-static tid_t sys_exec(struct intr_frame *f){
-  char **file = f->esp + 4;
+static tid_t sys_exec(const char* file){
   tid_t ret_pid = -1;
-  int i;
-  for (i = 0; i < sizeof(file); i++)
-    check_address(file+i, f);
-  for (i = 0; i < sizeof(*file); i++)
-    check_address((*file)+i, f);
-  ret_pid = process_execute(*file);
+  ret_pid = process_execute(file);
   return ret_pid;
 }
 
@@ -52,31 +46,25 @@ static void sys_halt(){
 }
 
 /* SYS_CREATE */
-static bool sys_create(struct intr_frame *f)
+static bool sys_create(const char* file, unsigned size)
 {
-  char **file = f->esp + 4;
-  check_address (*file, f);
-  void *size = file + 4;
-  check_address (size, f);
   // make sure the name of the file isn't empty
-  if (strlen(*file) == 0)
+  if (strlen(file) == 0)
     return 0;
   // make sure the name of the file isn't too big
   // file names must be 14 characters or fewer
-  if (strlen(*file) > 14)
+  if (strlen(file) > 14)
     return 0;
   lock_acquire(&file_lock);
-  //printf("%s\n", *(char**)file);
-  int ret = filesys_create(*(char**)file, *(int*)size);
+  int ret = filesys_create(file, size);
   lock_release(&file_lock);
   return ret;
 }
 
 /* SYS_WAIT */
-int sys_wait (struct intr_frame *f)
+int sys_wait (tid_t pid)
 {
-  tid_t* pid = f->esp + 4;
-  int ret = process_wait(*pid);
+  int ret = process_wait(pid);
   return ret;
 }
 
@@ -317,7 +305,6 @@ syscall_handler (struct intr_frame *f)
 
   // if we get to this point, the address is legal
   int sys_call_id = *(int*)f->esp;
-  // TODO: assert to ensure that this is actually a valid syscall number
   ASSERT (sys_call_id >= 0 && sys_call_id < 14);
 
   switch (sys_call_id){
@@ -332,15 +319,25 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_EXEC:
-      f->eax = sys_exec(f);
+      arg1 = f->esp + 4;
+      check_address (arg1);
+      check_address (*(char**)arg1);
+      f->eax = sys_exec(*(char**)arg1);
       break;
 
     case SYS_WAIT:
-      f->eax = sys_wait(f);
+      arg1 = f->esp + 4;
+      check_address (arg1);
+      f->eax = sys_wait(*(tid_t*)arg1);
       break;
 
     case SYS_CREATE:
-      f->eax = sys_create(f);
+      arg1 = f->esp + 4;
+      arg2 = arg1 + 4;
+      check_address (arg1);
+      check_address (*(char**)arg1);
+      check_address (arg2);
+      f->eax = sys_create(*(char**)arg1, *(unsigned*)arg2);
       break;
 
     case SYS_REMOVE:
@@ -352,7 +349,7 @@ syscall_handler (struct intr_frame *f)
     case SYS_OPEN:
       arg1 = f->esp + 4;
       check_address (arg1);
-      check_address_deref_charptrptr (arg1);
+      check_address (*(char**)arg1);
       f->eax = sys_open(*(char**)arg1);
       break;
 
@@ -364,12 +361,12 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_READ:
       arg1 = f->esp + 4;
-      arg2 = f->esp + 8; // arg2 is the buffer; we need to check it specially?
+      arg2 = f->esp + 8;
       arg3 = f->esp + 12;
       check_address (arg1);
       check_address (arg2);
       check_address (arg3);
-      check_address_deref_charptrptr(arg2);
+      check_address (*(char**)arg2);
       f->eax = sys_read (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
@@ -380,7 +377,7 @@ syscall_handler (struct intr_frame *f)
       check_address (arg1);
       check_address (arg2);
       check_address (arg3);
-      check_address_deref_charptrptr (arg2);
+      check_address (*(char**)arg2);
       f->eax = sys_write (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
@@ -440,34 +437,6 @@ check_address (void* addr)
       lock_release(&cur->element->lock);
       thread_exit();
     }
-  }
-}
-
-/* Checks whether the value at a char pointer pointer is valid. Used with
-   the open system call. */
-void
-check_address_deref_charptrptr (void* addr)
-{
-  if (*(char**)addr == NULL || is_kernel_vaddr(*(char**)addr))
-  {
-    struct thread* cur = thread_current();
-    lock_acquire(&cur->element->lock);
-    cur->element->exit_status = -1;
-    lock_release(&cur->element->lock);
-    thread_exit();
-  }
-  uint32_t* pd = thread_current()->pagedir;
-  void* kernel_addr = pagedir_get_page(pd, *(char**)addr);
-  // kernel_addr is only NULL if addr points to unmapped virtual memory
-  // if the user passed in an unmapped address, we want to exit
-  if (kernel_addr == NULL)
-  {
-    //release_locks ();
-    struct thread* cur = thread_current();
-    lock_acquire(&cur->element->lock);
-    cur->element->exit_status = -1;
-    lock_release(&cur->element->lock);
-    thread_exit();
   }
 }
 

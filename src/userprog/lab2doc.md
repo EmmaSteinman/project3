@@ -168,7 +168,7 @@ If the thread associated with the `child_tid` argument is alive, then the parent
 > paragraphs, describe the strategy or strategies you adopted for
 > managing these issues.  Give an example.
 
-We check all addresses passed into system calls, including the address of the argument passed to the system call handler, in a function called `check_address()`. This function forces a thread to exit if the address passed in is null, if it is a kernel virtual address (i.e. a user program should not be allowed to access it), or if it points to unmapped user virtual memory. We have to check addresses frequently, since we have to do it on every address passed in to a system call, but this checking does not obscure the primary function of code as each check only requires a call to `check_address()`.
+We check all addresses passed into system calls, including the address of the argument passed to the system call handler, in a function called `check_address()`. This function forces a thread to exit if the address passed in is null, if it is a kernel virtual address (i.e. a user program should not be allowed to access it), or if it points to unmapped user virtual memory. If a system call takes a pointer to a character array as an argument, we also check dereference that pointer to check that the pointer to the beginning of the array is also valid. This happens in system calls `open`, `read`, and `write`. At most, there are 4 calls to `check_address()` (one for each of 3 arguments, plus one for the dereferenced character pointer pointer) in any given system call, which is not too obtrusive. We also do all of the work for each system call in a different function, which separates the address checking and the actual functionality of each call.
 
 If a function does try to pass a bad pointer to a system call, we call `thread_exit()` to kill the thread. This function naturally leads to thread deallocation as part of the thread scheduling process. In `thread_exit()`, we call a function called `release_locks()` that iterates through the locks held by the current thread (kept track of in its `locks` list field) and releases each one. This ensures that any thread (exiting abnormally or not, since a user program could call the `exit` system call when it still holds some locks) releases all of its locks before exiting and that no other threads waiting on a lock held by a dying thread is stuck forever.
 
@@ -216,3 +216,5 @@ Each time we access or change any fields of a `thread_elem` (in `process_wait()`
 
 > B11: The default tid_t to pid_t mapping is the identity mapping.
 > If you changed it, what advantages are there to your approach?
+
+N/A - we did not change the mapping.
