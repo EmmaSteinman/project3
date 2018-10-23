@@ -130,10 +130,21 @@ The `thread_elem` struct contains the information associated with each node in t
 
 - `struct lock file_lock;`: A lock used to prevent race conditions when we access the file system.
 
+```
+struct fd_elem
+  {
+    int fd;
+    struct list_elem elem;
+    struct file *file;
+  };
+```
+The struct `fd_elem` is a file descriptor node that contains the fd number and a pointer to the file's location. The `list_elem` field is inserted into the doubly linked list `fd_list` under each thread.
 
 > B2: Describe how file descriptors are associated with open files.
 > Are file descriptors unique within the entire OS or just within a
 > single process?
+
+File descriptors are associated with open files using `struct fd_elem` which has a integer fd number and a pointer to the file location. FD numbers are assigned to a file once its opened by a thread, starting from 2. fd number 0 and 1 are reserved for STDIN and STDOUT. In our implementation, file descriptors are not unique within the entire OS but within a single thread. Since each thread keep a list of open files, each thread can only access files opened by itself. This way we can maximize security so no malicious thread can access other thread's open files.
 
 #### ALGORITHMS
 
@@ -213,6 +224,8 @@ Each time we access or change any fields of a `thread_elem` (in `process_wait()`
 
 > B10: What advantages or disadvantages can you see to your design
 > for file descriptors?
+
+The file descriptors that we implemented is based on the doubly-linked list class in the kernel library. Every thread has a list of open file descriptor that keep track of all open file by this thread. The advantage of this implementation is that since these file descriptor lists are seperated under each thread, no thread can mess with files opened by other thread by using the fd number they are not supposed to use. The disadvantage might be that there will be some slight overhead whenever we want to access file since we are using doubly-linked list for every thread in the system.
 
 > B11: The default tid_t to pid_t mapping is the identity mapping.
 > If you changed it, what advantages are there to your approach?
