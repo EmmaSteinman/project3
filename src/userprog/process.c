@@ -43,8 +43,6 @@ process_execute (const char *file_name)
   // extract ONLY the file name so we can name the process
   // since strtok_r changes the arg string, we need to make a copy
   // of file_name before doing this
-  // TODO: we could do tokenization here and pass a char** through,
-  // using the first entry when we need the file name
   char* copy2, *save_ptr;
   copy2 = palloc_get_page (0);
   if (copy2 == NULL)
@@ -54,11 +52,10 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (fn, PRI_DEFAULT, start_process, fn_copy);
-
+  palloc_free_page(copy2);
   if (tid == TID_ERROR)
   {
     palloc_free_page (fn_copy);
-    palloc_free_page (copy2);
     return tid;
   }
   sema_down(&thread_current()->exec_sema);
@@ -81,7 +78,6 @@ process_execute (const char *file_name)
         lock_release(&entry->lock);
       }
     }
-  palloc_free_page(copy2); // free fn to prevent memory leak
 
   struct thread* cur = thread_current();;
   if (cur->tid > 1 && child_thread != NULL)
@@ -152,8 +148,6 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid)
 {
-  // TODO: deallocate a thread_elem if it, its parent, and its children have all died
-  //       - we might be able to do this in the first for loop below? update labdoc when you do this
   struct thread* cur = thread_current();
   struct thread* child_thread = get_thread_all (child_tid);
   struct thread_elem* elem;
@@ -354,8 +348,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
   char* fn = strtok_r(copy, " ", &save_ptr);
 
   /* Open executable file. */
-  //file = filesys_open (file_name);
   file = filesys_open (fn);
+  palloc_free_page(copy); // free page to prevent memory leak
   if (file == NULL)
     {
       printf ("load: %s: open failed\n", file_name);
@@ -581,8 +575,6 @@ setup_stack (void **esp, char *file_name)
         char* token, *save_ptr;
 
         // get the tokens
-        // TODO: this does NOT put the null terminating characters at the end of the strings!
-        // we need to put them there ourselves I think!
         for (token = strtok_r (file_name, " ", &save_ptr); token != NULL;
             token = strtok_r (NULL, " ", &save_ptr))
             {
