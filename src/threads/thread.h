@@ -109,11 +109,11 @@ struct thread
     int next_fd; /* keep track of fd usage */
     struct list fd_list;
 
-
     struct semaphore process_sema;      /* Semaphore to make a process wait while its child executes. */
     struct thread_elem* element;        /* Element associated with this thread in thread_list. */
     struct semaphore exec_sema;         /* Semaphore used to synchronize thread creation in process_execute(). */
     struct list locks;                  /* List of locks currently held by this thread. */
+    struct list_elem child_elem;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -132,6 +132,7 @@ struct thread_elem
     struct thread* parent;
     struct lock lock;
     struct thread* thread;
+    struct list children;
   };
 
 

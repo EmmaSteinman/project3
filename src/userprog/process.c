@@ -54,16 +54,17 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (fn, PRI_DEFAULT, start_process, fn_copy);
-  sema_down(&thread_current()->exec_sema);
+
   if (tid == TID_ERROR)
   {
     palloc_free_page (fn_copy);
-    palloc_free_page (fn);
+    palloc_free_page (copy2);
+    return tid;
   }
+  sema_down(&thread_current()->exec_sema);
   struct thread* child_thread = get_thread_all(tid);
 
-  // TODO: is there a way to do this without iterating through the list?
-  //       maybe using more sophisticated synchronization?
+  // if the child is null and its exit status is -1, return -1
   if (child_thread == NULL)
     {
       struct list_elem* e;
@@ -80,8 +81,12 @@ process_execute (const char *file_name)
         lock_release(&entry->lock);
       }
     }
+  palloc_free_page(copy2); // free fn to prevent memory leak
 
-  palloc_free_page(fn); // free fn to prevent memory leak
+  struct thread* cur = thread_current();;
+  if (cur->tid > 1 && child_thread != NULL)
+    list_push_back (&cur->element->children, &child_thread->child_elem);
+
   return tid;
 }
 
@@ -106,14 +111,15 @@ start_process (void *file_name_)
   lock_release(&file_lock);
 
   /* If load failed, quit. */
-  if (success)
+  // if (success)
+  // {
+  //   struct file * file = filesys_open (file_name);
+  //   file_deny_write (file);
+  // }
+  //else
+  palloc_free_page (file_name);
+  if (!success)
   {
-    struct file * file = filesys_open (file_name);
-    file_deny_write (file);
-  }
-  else
-  {
-    palloc_free_page (file_name);
     lock_acquire(&cur->element->lock);
     cur->element->exit_status = -1;
     lock_release(&cur->element->lock);
@@ -151,6 +157,7 @@ process_wait (tid_t child_tid)
   struct thread* cur = thread_current();
   struct thread* child_thread = get_thread_all (child_tid);
   struct thread_elem* elem;
+
   if (child_thread == NULL)
   {
     struct list_elem* e;
@@ -197,7 +204,6 @@ process_wait (tid_t child_tid)
   lock_acquire(&elem->lock);
   list_remove(&elem->elem); // remove the child thread's element from the list since we have now waited on it
   lock_release(&elem->lock);
-
   sema_down(&child_thread->process_sema);
 
   lock_acquire(&elem->lock);

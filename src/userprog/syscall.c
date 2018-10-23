@@ -1,4 +1,5 @@
 
+
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -107,20 +108,22 @@ void sys_close (int fd){
        e = list_next (e))
     {
       fd_close = list_entry (e, struct fd_elem, elem);
-      if(fd_close->fd == fd){
+      if(fd_close->fd == fd)
+      {
         file_ptr = fd_close->file;
-        if(file_ptr != NULL){
+        if(file_ptr != NULL)
+        {
           file_close(file_ptr);
           list_remove(e);
           t->num_file--;
-          //free(fd_close); TODO
         }
         break;
       }
     }
 
   lock_release(&file_lock);
-
+  // if (fd_close != NULL)
+  //   free(fd_close);
 }
 
 int

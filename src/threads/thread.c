@@ -93,7 +93,6 @@ thread_init (void)
   lock_init (&file_lock);
   list_init (&ready_list);
   list_init (&all_list);
-  //list_init (&dead_threads);
   list_init (&thread_list);
 
 
@@ -170,6 +169,7 @@ tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux)
 {
+
   struct thread *t;
   struct kernel_thread_frame *kf;
   struct switch_entry_frame *ef;
@@ -177,7 +177,6 @@ thread_create (const char *name, int priority,
   tid_t tid;
 
   ASSERT (function != NULL);
-
   /* Allocate thread. */
   t = palloc_get_page (PAL_ZERO);
   if (t == NULL)
@@ -191,6 +190,7 @@ thread_create (const char *name, int priority,
   t->element->parent = thread_current();
   t->element->exit_status = 0;
   t->element->thread = t;
+  list_init(&t->element->children);
   lock_init (&t->element->lock);
   list_push_back (&thread_list, &e->elem);
 
@@ -213,7 +213,6 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   //sema_up(&t->exec_sema);
-
   /* Add to run queue. */
   thread_unblock (t);
 
@@ -307,6 +306,24 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
+
+  while (!list_empty (&cur->fd_list))
+    {
+      struct list_elem *e = list_pop_front (&cur->fd_list);
+      struct fd_elem* entry = list_entry (e, struct fd_elem, elem);
+      lock_acquire(&file_lock);
+      file_close (entry->file);
+      lock_release(&file_lock);
+      free(entry);
+    }
+
+  lock_acquire(&cur->element->lock);
+  if (cur->child_elem.next != NULL)
+  {
+    list_remove(&cur->child_elem);
+  }
+  lock_release(&cur->element->lock);
+
 
   list_remove (&cur->allelem);
   lock_acquire(&cur->element->lock);
