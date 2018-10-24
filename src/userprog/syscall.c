@@ -122,8 +122,6 @@ void sys_close (int fd){
     }
 
   lock_release(&file_lock);
-  // if (fd_close != NULL)
-  //   free(fd_close);
 }
 
 int
@@ -187,7 +185,7 @@ int sys_read(int fd, const void *buffer, unsigned size){
   }
 
   lock_release(&file_lock);
-  //printf("\nIM RETURNING %i\n", ret );
+
   return ret;
 }
 
@@ -293,18 +291,15 @@ unsigned sys_tell(int fd){
 static void
 syscall_handler (struct intr_frame *f)
 {
-  // there are at most 3 arguments to each system call
-  // and each takes up 4 bytes on the stack
-
   // we need to check the address first
   // the system call number is on the user's stack in the user's virtual address space
-  // so check the address first
   // terminates the process if the address is illegal
   check_address (f->esp);
 
   void* arg1;
   void* arg2;
   void* arg3;
+  int i;
 
   // if we get to this point, the address is legal
   int sys_call_id = *(int*)f->esp;
@@ -324,7 +319,8 @@ syscall_handler (struct intr_frame *f)
     case SYS_EXEC:
       arg1 = f->esp + 4;
       check_address (arg1);
-      check_address (*(char**)arg1);
+      for (i = 0; i < 14; i++) // file names can only have 14 characters or fewer
+        check_address(*(char**)arg1+i);
       f->eax = sys_exec(*(char**)arg1);
       break;
 
@@ -338,7 +334,8 @@ syscall_handler (struct intr_frame *f)
       arg1 = f->esp + 4;
       arg2 = arg1 + 4;
       check_address (arg1);
-      check_address (*(char**)arg1);
+      for (i = 0; i < 14; i++) // file names can only have 14 characters or fewer
+        check_address(*(char**)arg1+i);
       check_address (arg2);
       f->eax = sys_create(*(char**)arg1, *(unsigned*)arg2);
       break;
@@ -352,7 +349,8 @@ syscall_handler (struct intr_frame *f)
     case SYS_OPEN:
       arg1 = f->esp + 4;
       check_address (arg1);
-      check_address (*(char**)arg1);
+      for (i = 0; i < 14; i++) // file names can only have 14 characters or fewer
+        check_address(*(char**)arg1+i);
       f->eax = sys_open(*(char**)arg1);
       break;
 
@@ -369,7 +367,8 @@ syscall_handler (struct intr_frame *f)
       check_address (arg1);
       check_address (arg2);
       check_address (arg3);
-      check_address (*(char**)arg2);
+      for (i = 0; i < *(int*)arg3; i++)
+        check_address(*(char**)arg2+i);
       f->eax = sys_read (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
@@ -380,7 +379,8 @@ syscall_handler (struct intr_frame *f)
       check_address (arg1);
       check_address (arg2);
       check_address (arg3);
-      check_address (*(char**)arg2);
+      for (i = 0; i < *(int*)arg3; i++)
+        check_address(*(char**)arg2+i);
       f->eax = sys_write (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
@@ -420,7 +420,6 @@ check_address (void* addr)
     // if the initial address is null or a kernel address, we definitely need to exit
     if (addr+i == NULL || is_kernel_vaddr(addr+i))
     {
-      //release_locks ();
       struct thread* cur = thread_current();
       lock_acquire(&cur->element->lock);
       cur->element->exit_status = -1;
@@ -433,7 +432,6 @@ check_address (void* addr)
     // if the user passed in an unmapped address, we want to exit
     if (kernel_addr == NULL)
     {
-      //release_locks ();
       struct thread* cur = thread_current();
       lock_acquire(&cur->element->lock);
       cur->element->exit_status = -1;

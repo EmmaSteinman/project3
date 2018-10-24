@@ -190,7 +190,7 @@ thread_create (const char *name, int priority,
   t->element->parent = thread_current();
   t->element->exit_status = 0;
   t->element->thread = t;
-  list_init(&t->element->children);
+  //list_init(&t->element->children);
   lock_init (&t->element->lock);
   list_push_back (&thread_list, &e->elem);
 
@@ -212,7 +212,6 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
-  //sema_up(&t->exec_sema);
   /* Add to run queue. */
   thread_unblock (t);
 
@@ -317,12 +316,12 @@ thread_exit (void)
       free(entry);
     }
 
-  lock_acquire(&cur->element->lock);
-  if (cur->child_elem.next != NULL)
-  {
-    list_remove(&cur->child_elem);
-  }
-  lock_release(&cur->element->lock);
+  // lock_acquire(&cur->element->lock);
+  // if (cur->child_elem.next != NULL)
+  // {
+  //   list_remove(&cur->child_elem);
+  // }
+  // lock_release(&cur->element->lock);
 
 
   list_remove (&cur->allelem);

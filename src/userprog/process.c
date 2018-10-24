@@ -79,9 +79,9 @@ process_execute (const char *file_name)
       }
     }
 
-  struct thread* cur = thread_current();;
-  if (cur->tid > 1 && child_thread != NULL)
-    list_push_back (&cur->element->children, &child_thread->child_elem);
+  // struct thread* cur = thread_current();;
+  // if (cur->tid > 1 && child_thread != NULL)
+  //   list_push_back (&cur->element->children, &child_thread->child_elem);
 
   return tid;
 }
@@ -91,7 +91,6 @@ process_execute (const char *file_name)
 static void
 start_process (void *file_name_)
 {
-  //sema_down(&thread_current()->exec_sema);
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
@@ -349,6 +348,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Open executable file. */
   file = filesys_open (fn);
+  //file_deny_write (file); // NEW
   palloc_free_page(copy); // free page to prevent memory leak
   if (file == NULL)
     {
@@ -434,7 +434,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
-
   success = true;
 
  done:

@@ -103,14 +103,22 @@ New fields in `lock` struct:
 
 Functions:
 - `struct thread* get_thread_all (tid_t tid)` in thread.c. Given a thread ID, searches the list of all threads and returns a pointer to the thread associated with that TID, if it exists.
-- `void sys_exit(struct intr_frame *f)` in syscall.c. Implements the `exit` system call.
-- `void sys_write(struct intr_frame *f)` in syscall.c. Implements the `write` system call.
-- `static tid_t sys_exec(struct intr_frame *f)` in syscall.c. Implements the `exec` system call.
-- `static void sys_halt()` in syscall.c. Implements the `halt` system call.
+- `void sys_exit (struct intr_frame *f)` in syscall.c. Implements the `exit` system call.
+- `void sys_write struct intr_frame *f)` in syscall.c. Implements the `write` system call.
+- `static tid_t sys_exec (struct intr_frame *f)` in syscall.c. Implements the `exec` system call.
+- `static void sys_halt ()` in syscall.c. Implements the `halt` system call.
 - `static bool sys_create(struct intr_frame *f)` in syscall.c. Implements the `create` system call.
 - `int sys_wait (struct intr_frame *f)` in syscall.c. Implements the `wait` system call.
+- `int sys_open (const char* file)` in syscall.c. Implements the `open` system call.
+- `void sys_close (int fd)` in syscall.c. Implements the `close` system call.
+- `sys_filesize (int fd)` in syscall.c. Implements the `filesize` system call.
+- `int sys_read (int fd, const void *buffer, unsigned size)` in syscall.c. Implements the `read` system call.
+- `sys_write (int fd, const void *buffer, unsigned size)` in syscall.c. Implements the `write` system call.
+- `bool sys_remove (const char *file)` in syscall.c. Implements the `remove` system call.
+- `void sys_seek (int fd, unsigned position)` in syscall.c. Implements the `seek` system call.
+- `unsigned sys_tell (int fd)` in syscall.c. Implements the `tell` system call.
 - `void check_address (void* addr, struct intr_frame *f)` in syscall.c. Checks a given address to ensure that the current thread has legal access to it, and kills the thread otherwise.
-- `int write (int fd, const void *buffer, unsigned length)` in syscall.c.
+- `release_locks (void)` in syscall.c. Releases all of the locks held by a current thread. Called in `thread_exit()` to ensure that a thread's locks are all released before it dies.
 
 New declarations in thread.h:
 
@@ -151,12 +159,28 @@ File descriptors are associated with open files using `struct fd_elem` which has
 > B3: Describe your code for reading and writing user data from the
 > kernel.
 
+To read arguments to system calls off of the user stack, we simply check the address of the provided interrupt frame's stack pointer using our `check_address()` function (described below in the answer to B6). If that check does not kill the thread, then we dereference the stack pointer to get the value of the argument. If the argument is itself a pointer, we also check that address before continuing. We do this to determine which system call has been called in `syscall_handler`. We then use that value to enter a case in a switch statement, where we pop several values off the stack (how many depends on how many arguments the specific system call takes) and use `check_address()` to verify their validity.
+
+To pass the return value of a system call back to the user, we set the interrupt frame's `eax` register to the return value of the function that implements the system call we want. This is where the user program expects the return value to be.
+
+For a user program to be able to read and write to files, it needs to have previously opened a valid, existing file. Our `open` system call takes a string and uses `filesys_open()` to attempt to open this file; if that call fails, which happens if a file with specified file name doesn't exist or if the user program otherwise doesn't have access to it for some reason, then the file is NOT added to the thread's list of open threads, and `open` returns -1. This prevents a user program from reading or writing to a file that it has not opened or cannot open.
+
+If a user program calls the `read` system call, we need to put data from a file into a user-program-accessible buffer. The user provides a file descriptor `fd`, a `buffer` into which to write the data, and a `size` specifying the number of bytes to be read. An `fd` of 0 corresponds to STDIN, so if we get that as the file descriptor, we simply use the provided function `input_getc()` to read `size` characters from the keyboard into `buffer`. An `fd` of 1 corresponds to STDOUT, which can't be used in a `read` system call, so we return -1 if we are passed this file descriptor. Otherwise, the user is trying to access a file in the file system, so we search the current thread's list of open files until we find one with the same file descriptor as `fd`. If that file descriptor corresponds to a file that this thread currently has open, we call `file_read()`, which takes care of reading the correct number of bytes into `buffer`. If some part of this process fails - for example, if there is no file corresponding to `fd` in the thread's list of open files - we return -1. Otherwise, we return the number of bytes that were successfully read by `file_read()`.
+
+If the user program calls the `write` system call, then we need to put data from a user-provided buffer into a file. The user provides the same arguments as for the `read` system call, except this time `buffer` already contains data that needs to be written. We return -1 if the user specifies an `fd` of 0, since STDIN is not a valid thing to write to. If `fd` is 1, then we use `putbuf()` to write the specified number of bytes to the console. For all other `fd` values, the process is almost exactly the same as with the `read` system call, except that once we find the open file associated with `fd` for the current thread, we use `file_write()` to write the buffer to that file. Again, we return the number of bytes written to the file (which may be fewer than `size` if we reach the end of the file), or -1 if some part of the process failed.
+
 > B4: Suppose a system call causes a full page (4,096 bytes) of data
 > to be copied from user space into the kernel.  What is the least
 > and the greatest possible number of inspections of the page table
 > (e.g. calls to pagedir_get_page()) that might result?  What about
 > for a system call that only copies 2 bytes of data?  Is there room
 > for improvement in these numbers, and how much?
+
+A system call causing a full page of data to be copied from user space to the kernel should only happen if the user passes a buffer that is the size of an entire page to the `write` system call. All system calls take at most three arguments, all of which are pointers to other values. In some system calls - `open`, `create`, `exec`, `read`, and `write` - they may be pointers to character pointers. We need to check the address of each of these character pointers. In `open`, `create`, and `exec`, the number of character pointers must be 14 or less, since the strings represent file names, which are limited in length. So, `read` and `write` are the only two system calls that could have a full page of data be passed in by the user, and only `write` would have a full page of user data be copied to the kernel.
+
+In the `write` system call, we check the address of `size` number of entries in the array of character pointers that makes up the `buffer` argument. Before we call `file_write()`, we run through a for loop for `size` iterations that calls `check_address()` to make sure that all of the data to be written to the file is valid. Each call to `check_address()` also contains a for loop that iterates 4 times to make sure that each byte in a given address is valid. So, if we had a buffer containing 4096 bytes to write to a file, we would have, at most, 4096*4 = 16384 calls to `pagedir_get_page()` if every single address turned out to be valid. This does not include calls to `check_address()` that also happen regardless, such as checking the system call ID the address of the pointer to the buffer. However, this number could be significantly lower - as low as 0, if the user passed a `NULL` pointer to the system call - if the very first address we checked was invalid.  The situation in which all addresses are valid results in a lot of inspections of the page table, but it does not seem as though we can improve this number in our code, as we do need to make sure that every address that the user process tries to use with a system call is valid.
+
+If a system call were to copy 2 bytes of data from user space to kernel using `write`, we would call `pagedir_get_page()`, at most, 2 * 4 = 8 times just to check the addresses of those bytes. Again, if the very first address we checked was invalid, we may not need any calls to find out. There is again not an apparent way to improve these numbers, since we need to check the address of each byte to be copied.
 
 > B5: Briefly describe your implementation of the "wait" system call
 > and how it interacts with process termination.
@@ -179,11 +203,12 @@ If the thread associated with the `child_tid` argument is alive, then the parent
 > paragraphs, describe the strategy or strategies you adopted for
 > managing these issues.  Give an example.
 
-We check all addresses passed into system calls, including the address of the argument passed to the system call handler, in a function called `check_address()`. This function forces a thread to exit if the address passed in is null, if it is a kernel virtual address (i.e. a user program should not be allowed to access it), or if it points to unmapped user virtual memory. If a system call takes a pointer to a character array as an argument, we also check dereference that pointer to check that the pointer to the beginning of the array is also valid. This happens in system calls `open`, `read`, and `write`. At most, there are 4 calls to `check_address()` (one for each of 3 arguments, plus one for the dereferenced character pointer pointer) in any given system call, which is not too obtrusive. We also do all of the work for each system call in a different function, which separates the address checking and the actual functionality of each call.
+We check all addresses passed into system calls, including the address of the argument passed to the system call handler, in a function called `check_address()`. This function forces a thread to exit if the address passed in is null, if it is a kernel virtual address (i.e. a user program should not be allowed to access it), or if it points to unmapped user virtual memory. If a system call takes a pointer to a character array as an argument, we also call `check_address()` in a loop to check each pointer in that array. This happens in system calls `open`, `read`, and `write`. Even in cases where we have to check the address of three arguments, plus use a loop to check character array pointers, the error checking process is not too obtrusive. We also separate the sections of code that pop arguments off the stack and check the addresses of those arguments from the sections of code that actually implement the system calls, which makes it easier to understand the actual functionality of the calls.
 
-If a function does try to pass a bad pointer to a system call, we call `thread_exit()` to kill the thread. This function naturally leads to thread deallocation as part of the thread scheduling process. In `thread_exit()`, we call a function called `release_locks()` that iterates through the locks held by the current thread (kept track of in its `locks` list field) and releases each one. This ensures that any thread (exiting abnormally or not, since a user program could call the `exit` system call when it still holds some locks) releases all of its locks before exiting and that no other threads waiting on a lock held by a dying thread is stuck forever.
+If a function does try to pass a bad pointer to a system call, we call `thread_exit()` to kill the thread. This function naturally leads to thread deallocation as part of the thread scheduling process. In `thread_exit()`, we go through the dying thread's list of open files and close each one and free any memory associated with the `fd_elem` that stored information about that file. We also call a function called `release_locks()` that iterates through the locks held by the current thread (kept track of in its `locks` list field) and releases each one. This ensures that any thread (exiting abnormally or not, since a user program could call the `exit` system call when it still holds some locks) releases all of its locks before exiting and that no other threads waiting on a lock held by a dying thread is stuck forever.
 
-**definitely need more here, especially after file system calls are written**
+Let's say that a program has an open file that it is trying to write to, but the programmer accidentally passes a `NULL` pointer as the buffer instead of a buffer containing data to write into the file. Our `check_address()` function will catch the `NULL` pointer and will terminate the process, setting the process' exit status to -1 and calling `thread_exit()`. `thread_exit()` will close the file that the process had been trying to write to, since it's still open, and will release any locks that the process might have held.
+
 
 #### SYNCHRONIZATION
 
@@ -222,10 +247,14 @@ Each time we access or change any fields of a `thread_elem` (in `process_wait()`
 > B9: Why did you choose to implement access to user memory from the
 > kernel in the way that you did?
 
+We chose to implement our argument-validating `check_address()` function using functions from userprog/pagedir.c and threads/vaddr.h because it was relatively simple, compared to the other approach presented in the assignment. While our approach likely requires a bit more code inside the system call handler, the calls to `check_address()` are not particularly obtrusive and are separate from the functions that actually implement the system calls. Our approach was also quick to write and debug.
+
+The system calls that access the file system work with the provided list library, and use provided file system functions to actually access the files. By mostly using provided resources, we decreased the chance of mistakes that could cause our system calls to let processes execute illegal instructions or access illegal memory.
+
 > B10: What advantages or disadvantages can you see to your design
 > for file descriptors?
 
-The file descriptors that we implemented is based on the doubly-linked list class in the kernel library. Every thread has a list of open file descriptor that keep track of all open file by this thread. The advantage of this implementation is that since these file descriptor lists are seperated under each thread, no thread can mess with files opened by other thread by using the fd number they are not supposed to use. The disadvantage might be that there will be some slight overhead whenever we want to access file since we are using doubly-linked list for every thread in the system.
+The file descriptors that we implemented is based on the doubly-linked list class in the kernel library. Every thread has a list of open file descriptor that keep track of all open file by this thread. The advantage of this implementation is that since these file descriptor lists are separated under each thread, no thread can mess with files opened by other thread by using the fd number they are not supposed to use. The disadvantage might be that there will be some slight memory overhead whenever we want to access file since we are using doubly-linked list for every thread in the system. We also have to traverse a thread's list of files each time we make a system call that accesses the file system, which may slow down these calls, especially for threads that are accessing lots of files.
 
 > B11: The default tid_t to pid_t mapping is the identity mapping.
 > If you changed it, what advantages are there to your approach?
