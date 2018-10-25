@@ -14,19 +14,19 @@
 #include "process.h"
 
 static void syscall_handler (struct intr_frame *);
-void sys_exit(int status);
-static tid_t sys_exec(const char* file);
-static void sys_halt();
-static bool sys_create(const char* file, unsigned size);
+void sys_exit (int status);
+static tid_t sys_exec (const char* file);
+static void sys_halt ();
+static bool sys_create (const char* file, unsigned size);
 int sys_wait (tid_t pid);
 int sys_open (const char* file);
 void sys_close (int fd);
-sys_filesize (int fd);
-int sys_read(int fd, const void *buffer, unsigned size);
-sys_write (int fd, const void *buffer, unsigned size);
-bool sys_remove(const char *file);
-void sys_seek(int fd, unsigned position);
-unsigned sys_tell(int fd);
+int sys_filesize (int fd);
+int sys_read (int fd, const void *buffer, unsigned size);
+int sys_write (int fd, const void *buffer, unsigned size);
+bool sys_remove (const char *file);
+void sys_seek (int fd, unsigned position);
+unsigned sys_tell (int fd);
 void check_address (void* addr);
 void release_locks (void);
 
@@ -38,7 +38,8 @@ syscall_init (void)
 
 /* SYS_EXIT */
 void
-sys_exit(int status) {
+sys_exit (int status)
+{
   struct thread* cur = thread_current();
   lock_acquire(&cur->element->lock);
   cur->element->exit_status = status;
@@ -49,19 +50,21 @@ sys_exit(int status) {
 
 
 /* SYS_EXEC*/
-static tid_t sys_exec(const char* file){
+static tid_t sys_exec (const char* file)
+{
   tid_t ret_pid = -1;
   ret_pid = process_execute(file);
   return ret_pid;
 }
 
 /* SYS_HALT */
-static void sys_halt(){
+static void sys_halt()
+{
   shutdown_power_off();
 }
 
 /* SYS_CREATE */
-static bool sys_create(const char* file, unsigned size)
+static bool sys_create (const char* file, unsigned size)
 {
   // make sure the name of the file isn't empty
   if (strlen(file) == 0)
@@ -87,7 +90,8 @@ int sys_wait (tid_t pid)
  * Open file and return file descriptor
  * return -1 if failed
  */
-int sys_open (const char* file){
+int sys_open (const char* file)
+{
   int fd = -1;
   struct file *file_ptr = NULL;
 
@@ -109,7 +113,8 @@ int sys_open (const char* file){
 }
 
 
-void sys_close (int fd){
+void sys_close (int fd)
+{
   lock_acquire(&file_lock);
 
   /* locate our file according to fd */
@@ -157,7 +162,8 @@ sys_filesize (int fd)
 }
 
 
-int sys_read(int fd, const void *buffer, unsigned size){
+int sys_read (int fd, const void *buffer, unsigned size)
+{
   /* read in file according to input type */
   lock_acquire(&file_lock);
 
@@ -256,7 +262,8 @@ bool sys_remove(const char *file){
   return ret;
 }
 
-void sys_seek(int fd, unsigned position){
+void sys_seek (int fd, unsigned position)
+{
   lock_acquire(&file_lock);
 
   struct list_elem *e;
@@ -278,7 +285,8 @@ void sys_seek(int fd, unsigned position){
   lock_release(&file_lock);
 }
 
-unsigned sys_tell(int fd){
+unsigned sys_tell (int fd)
+{
   lock_acquire(&file_lock);
 
   struct list_elem *e;
