@@ -105,14 +105,6 @@ start_process (void *file_name_)
   success = load (file_name, &if_.eip, &if_.esp);
   lock_release(&file_lock);
 
-  /* If load failed, quit. */
-  // if (success)
-  // {
-  //   struct file * file = filesys_open (file_name);
-  //   file_deny_write (file);
-  // }
-  //else
-  palloc_free_page (file_name);
   if (!success)
   {
     lock_acquire(&cur->element->lock);
@@ -121,7 +113,10 @@ start_process (void *file_name_)
     sema_up(&cur->element->parent->exec_sema);
     thread_exit ();
   }
+  struct file * file = filesys_open (file_name);
+  file_deny_write (file);
   sema_up(&cur->element->parent->exec_sema);
+  palloc_free_page (file_name);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
