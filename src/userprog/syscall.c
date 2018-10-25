@@ -5,7 +5,7 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-#include "threads/vaddr.h" // NEW
+#include "threads/vaddr.h"
 #include "../devices/shutdown.h"
 #include "../devices/input.h"
 #include "../filesys/filesys.h"
@@ -13,9 +13,22 @@
 #include "threads/synch.h"
 #include "process.h"
 
-// TODO: write a function that gets arguments?
-
 static void syscall_handler (struct intr_frame *);
+void sys_exit(int status);
+static tid_t sys_exec(const char* file);
+static void sys_halt();
+static bool sys_create(const char* file, unsigned size);
+int sys_wait (tid_t pid);
+int sys_open (const char* file);
+void sys_close (int fd);
+sys_filesize (int fd);
+int sys_read(int fd, const void *buffer, unsigned size);
+sys_write (int fd, const void *buffer, unsigned size);
+bool sys_remove(const char *file);
+void sys_seek(int fd, unsigned position);
+unsigned sys_tell(int fd);
+void check_address (void* addr);
+void release_locks (void);
 
 void
 syscall_init (void)
@@ -30,6 +43,7 @@ sys_exit(int status) {
   lock_acquire(&cur->element->lock);
   cur->element->exit_status = status;
   lock_release(&cur->element->lock);
+
   thread_exit();
 }
 
@@ -115,6 +129,7 @@ void sys_close (int fd){
         {
           file_close(file_ptr);
           list_remove(e);
+          free(fd_close);
           t->num_file--;
         }
         break;
@@ -127,7 +142,6 @@ void sys_close (int fd){
 int
 sys_filesize (int fd)
 {
-  // TODO: add error handling? what do we do if the fd is not in the thread's list of files?
   struct thread* cur = thread_current();
   struct list_elem* e;
   struct file* file;
