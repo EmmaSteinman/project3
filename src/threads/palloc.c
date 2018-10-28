@@ -36,6 +36,8 @@ struct pool
 /* Two pools: one for kernel data, one for user pages. */
 static struct pool kernel_pool, user_pool;
 
+struct frame_entry** frame_table; // NEW
+
 static void init_pool (struct pool *, void *base, size_t page_cnt,
                        const char *name);
 static bool page_from_pool (const struct pool *, void *page);
@@ -59,6 +61,10 @@ palloc_init (size_t user_page_limit)
   init_pool (&kernel_pool, free_start, kernel_pages, "kernel pool");
   init_pool (&user_pool, free_start + kernel_pages * PGSIZE,
              user_pages, "user pool");
+
+  // allocate the frame table
+  // TODO: do we need to free this at some point? probably not but maybe
+  frame_table = malloc(sizeof(struct frame_entry*) * user_pages);
 }
 
 /* Obtains and returns a group of PAGE_CNT contiguous free pages.
@@ -86,12 +92,12 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
   else
     pages = NULL;
 
-  if (pages != NULL) 
+  if (pages != NULL)
     {
       if (flags & PAL_ZERO)
         memset (pages, 0, PGSIZE * page_cnt);
     }
-  else 
+  else
     {
       if (flags & PAL_ASSERT)
         PANIC ("palloc_get: out of pages");
@@ -108,14 +114,41 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
    available, returns a null pointer, unless PAL_ASSERT is set in
    FLAGS, in which case the kernel panics. */
 void *
-palloc_get_page (enum palloc_flags flags) 
+palloc_get_page (enum palloc_flags flags)
 {
   return palloc_get_multiple (flags, 1);
 }
 
+// NEW
+/* Replaces calls to palloc_get_page(). Uses palloc_get_page() to
+   allocate a page, and adds an entry to the frame table about
+   that page. */
+void *
+allocate_page (enum palloc_flags flags)
+{
+  // set to PAL_USER and PAL_ASSERT so that the kernel panics if we are out
+  // of pages; change this in the future when we implement swapping
+  void* va_ptr = palloc_get_page(flags | PAL_ASSERT);
+
+  // this is a VIRTUAL ADDRESS, so to get the frame number, we need
+  // to translate it
+  uintptr_t phys_ptr = vtop (va_ptr);
+  uintptr_t pfn = pg_no (phys_ptr);
+
+  // initialize the new frame table entry
+  // TODO: free this when we free the page or we're gonna get a memory leak
+  struct frame_entry* entry = malloc(sizeof(struct frame_entry));
+  entry->t = thread_current();
+
+  // add the entry to the frame table at the index of the PFN
+  frame_table[pfn] = entry;
+
+  return va_ptr;
+}
+
 /* Frees the PAGE_CNT pages starting at PAGES. */
 void
-palloc_free_multiple (void *pages, size_t page_cnt) 
+palloc_free_multiple (void *pages, size_t page_cnt)
 {
   struct pool *pool;
   size_t page_idx;
@@ -143,15 +176,21 @@ palloc_free_multiple (void *pages, size_t page_cnt)
 
 /* Frees the page at PAGE. */
 void
-palloc_free_page (void *page) 
+palloc_free_page (void *page)
 {
+  // page is a kernel virtual address
+  // get its PFN so that we can free its frame table entry
+  uintptr_t phys_ptr = vtop (page);
+  uintptr_t pfn = pg_no (phys_ptr);
+  free (frame_table[pfn]);
+
   palloc_free_multiple (page, 1);
 }
 
 /* Initializes pool P as starting at START and ending at END,
    naming it NAME for debugging purposes. */
 static void
-init_pool (struct pool *p, void *base, size_t page_cnt, const char *name) 
+init_pool (struct pool *p, void *base, size_t page_cnt, const char *name)
 {
   /* We'll put the pool's used_map at its base.
      Calculate the space needed for the bitmap
@@ -172,7 +211,7 @@ init_pool (struct pool *p, void *base, size_t page_cnt, const char *name)
 /* Returns true if PAGE was allocated from POOL,
    false otherwise. */
 static bool
-page_from_pool (const struct pool *pool, void *page) 
+page_from_pool (const struct pool *pool, void *page)
 {
   size_t page_no = pg_no (page);
   size_t start_page = pg_no (pool->base);

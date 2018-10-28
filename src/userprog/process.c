@@ -35,7 +35,7 @@ process_execute (const char *file_name)
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
+  fn_copy = palloc_get_page (0); // don't replace with allocate_page because this pulls from kernel pool
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
@@ -44,7 +44,7 @@ process_execute (const char *file_name)
   // since strtok_r changes the arg string, we need to make a copy
   // of file_name before doing this
   char* copy2, *save_ptr;
-  copy2 = palloc_get_page (0);
+  copy2 = palloc_get_page (0); // don't replace with allocate_page because this pulls from kernel pool
   if (copy2 == NULL)
     return TID_ERROR;
   strlcpy (copy2, file_name, PGSIZE);
@@ -335,7 +335,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   // make a copy of file_name and extract only the name of the executable
   char* copy, *save_ptr;
-  copy = palloc_get_page (0);
+  copy = palloc_get_page (0); // don't replace with allocate_page because this pulls from kernel pool
   if (copy == NULL)
     return TID_ERROR;
   strlcpy (copy, file_name, PGSIZE);
@@ -518,7 +518,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
-      uint8_t *kpage = palloc_get_page (PAL_USER);
+      //uint8_t *kpage = palloc_get_page (PAL_USER);
+      uint8_t *kpage = allocate_page (PAL_USER);
       if (kpage == NULL)
         return false;
 
@@ -554,7 +555,8 @@ setup_stack (void **esp, char *file_name)
   uint8_t *kpage;
   bool success = false;
 
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  //kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  kpage = allocate_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
