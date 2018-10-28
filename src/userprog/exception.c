@@ -4,6 +4,7 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -85,7 +86,7 @@ kill (struct intr_frame *f)
   lock_acquire(&cur->element->lock);
   cur->element->exit_status = -1;
   lock_release(&cur->element->lock);
-  //release_locks();
+
   switch (f->cs)
     {
     case SEL_UCSEG:
@@ -152,6 +153,27 @@ page_fault (struct intr_frame *f)
   not_present = (f->error_code & PF_P) == 0;
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
+
+  // if (not_present)
+  // {
+  //   // read the supplemental page table and see if the address is in there
+  //   struct page_table_elem p;
+  //   struct hash_elem* e;
+  //   p.addr = fault_addr;
+  //   printf("fault address: %x\n", fault_addr);
+  //   if (is_user_vaddr(fault_addr))
+  //     printf("user virtual address\n");
+  //   void* vaddr = pagedir_get_page(thread_current()->pagedir, fault_addr);
+  //   printf("vaddr: %x\n", vaddr);
+  //   e = hash_find (&s_page_table, &p.elem);
+  //   if (e != NULL)
+  //   {
+  //     printf("NOT NULL\n");
+  //   }
+  //   else {
+  //     printf("NULL\n");
+  //   }
+  // }
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to

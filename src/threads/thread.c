@@ -95,6 +95,7 @@ thread_init (void)
   list_init (&all_list);
   list_init (&thread_list);
 
+  //hash_init (&s_page_table, hash_int, hash_less, NULL);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();

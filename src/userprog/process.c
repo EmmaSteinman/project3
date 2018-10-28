@@ -1,5 +1,3 @@
-
-
 #include "userprog/process.h"
 #include <debug.h>
 #include <inttypes.h>
@@ -7,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <hash.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -517,6 +516,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
+
+      // TODO: replace this with something that adds an entry to the supplemental
+      // page table?
+
       /* Get a page of memory. */
       //uint8_t *kpage = palloc_get_page (PAL_USER);
       uint8_t *kpage = allocate_page (PAL_USER);
@@ -542,6 +545,12 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
+
+      // struct page_table_elem* elem = malloc(sizeof(struct page_table_elem));
+      // elem->addr = upage + ofs;
+      // //printf("load addr %x\n", elem->addr);
+      // hash_insert (&s_page_table, elem);
+
     }
   return true;
 }

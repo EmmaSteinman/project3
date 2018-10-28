@@ -5,6 +5,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <hash.h>
 #include "synch.h"
 
 /* States in a thread's life cycle. */
@@ -136,6 +137,14 @@ struct thread_elem
   };
 
 struct list thread_list;
+
+struct page_table_elem
+  {
+    struct hash_elem elem;
+    void* addr;
+  };
+
+struct hash s_page_table;
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
