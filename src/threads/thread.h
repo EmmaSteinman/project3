@@ -142,6 +142,11 @@ struct page_table_elem
   {
     struct hash_elem elem;
     void* addr;
+    int page_no;
+    struct thread* t;
+    struct file* file;
+    char** name;
+    bool writable;
   };
 
 struct hash s_page_table;

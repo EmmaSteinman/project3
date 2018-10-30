@@ -1,3 +1,4 @@
+
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -5,6 +6,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/palloc.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -128,6 +130,7 @@ kill (struct intr_frame *f)
 static void
 page_fault (struct intr_frame *f)
 {
+  printf("page faulting\n");
   bool not_present;  /* True: not-present page, false: writing r/o page. */
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
@@ -156,24 +159,77 @@ page_fault (struct intr_frame *f)
 
   // if (not_present)
   // {
-  //   // read the supplemental page table and see if the address is in there
+  //   printf("fault address: %x\n", fault_addr);
+  //   printf("fault address page no: %x\n", pg_no(fault_addr));
   //   struct page_table_elem p;
   //   struct hash_elem* e;
-  //   p.addr = fault_addr;
-  //   printf("fault address: %x\n", fault_addr);
-  //   if (is_user_vaddr(fault_addr))
-  //     printf("user virtual address\n");
-  //   void* vaddr = pagedir_get_page(thread_current()->pagedir, fault_addr);
-  //   printf("vaddr: %x\n", vaddr);
+  //   p.t = thread_current();
+  //   p.page_no = pg_no(fault_addr);
+  //   // TODO: we may have to search through a list of entries with the same page?
   //   e = hash_find (&s_page_table, &p.elem);
-  //   if (e != NULL)
+  //   // now we use the information in this page table entry to load the correct page
+  //   uint8_t *kpage = allocate_page (PAL_USER);
+  //   if (kpage == NULL)
+  //     kill(f);
+  //     //return false;
+  //   struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
+  //   // we might not want this to have to be equal to PGSIZE but can deal with that later
+  //   if (file_read(entry->file, kpage, PGSIZE) != PGSIZE)
   //   {
-  //     printf("NOT NULL\n");
+  //     palloc_free_page (kpage);
+  //     //return false;
+  //     kill (f);
   //   }
-  //   else {
-  //     printf("NULL\n");
+  //   // TODO: zero the bytes at the end of this page? if there are any?
+  //   struct thread *t = thread_current ();
+  //
+  //   //if (!(pagedir_get_page (t->pagedir, entry->addr) == NULL && pagedir_set_page (t->pagedir, entry->addr, kpage, entry->writable)))
+  //   if (!(pagedir_get_page (t->pagedir, entry->addr) == NULL && pagedir_set_page (t->pagedir, entry->addr, kpage, entry->writable)))
+  //   {
+  //     palloc_free_page (kpage);
+  //     //return false;
+  //     kill (f);
   //   }
+  //   printf("returning from page fault\n");
+  //   return;
   // }
+
+  if (not_present)
+  {
+    printf("not present\n");
+    struct page_table_elem p;
+    struct hash_elem* e;
+    p.t = thread_current();
+    p.page_no = pg_no(fault_addr);
+    e = hash_find (&s_page_table, &p.elem);
+
+    uint8_t *kpage = allocate_page (PAL_USER);
+    if (kpage == NULL)
+      kill(f);
+
+    struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
+
+    int fd = sys_open(entry->name);
+    // TODO: we probably don't actually want to compare this to PGSIZE
+    // we probably want to set how much of the page we want to read in the
+    // supplemental page table entry
+    if (sys_read (fd, kpage, PGSIZE) != PGSIZE)
+    {
+      palloc_free_page (kpage);
+      kill (f);
+    }
+
+    // need to put it into the page directory?
+
+    struct thread *t = thread_current ();
+
+    if (pagedir_get_page(t->pagedir, entry->addr) == NULL)
+      // TODO: what happens if setting the page fails
+      pagedir_set_page (t->pagedir, entry->addr, kpage, entry->writable);
+
+    // something is failing because we are trying to write to it and we don't have permission
+    return;
+  }
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to

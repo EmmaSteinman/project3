@@ -104,18 +104,20 @@ start_process (void *file_name_)
   success = load (file_name, &if_.eip, &if_.esp);
   lock_release(&file_lock);
 
+  palloc_free_page (file_name);
   if (!success)
   {
+    //palloc_free_page (file_name);
     lock_acquire(&cur->element->lock);
     cur->element->exit_status = -1;
     lock_release(&cur->element->lock);
     sema_up(&cur->element->parent->exec_sema);
     thread_exit ();
   }
-  struct file * file = filesys_open (file_name);
-  file_deny_write (file);
+  // struct file * file = filesys_open (file_name);
+  // file_deny_write (file);
   sema_up(&cur->element->parent->exec_sema);
-  palloc_free_page (file_name);
+  //palloc_free_page (file_name);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -308,9 +310,12 @@ struct Elf32_Phdr
 
 static bool setup_stack (void **esp, char *file_name);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
+// static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
+//                           uint32_t read_bytes, uint32_t zero_bytes,
+//                           bool writable);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
-                          bool writable);
+                          bool writable, char** name);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -340,9 +345,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
   strlcpy (copy, file_name, PGSIZE);
   char* fn = strtok_r(copy, " ", &save_ptr);
 
+  // save the file name for use later
+  char** name = malloc(sizeof(fn));
+  strlcpy (name, fn, strlen(fn)+1);
+
   /* Open executable file. */
   file = filesys_open (fn);
-  //file_deny_write (file); // NEW
   palloc_free_page(copy); // free page to prevent memory leak
   if (file == NULL)
     {
@@ -412,8 +420,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
                   read_bytes = 0;
                   zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
                 }
+              // if (!load_segment (file, file_page, (void *) mem_page,
+              //                    read_bytes, zero_bytes, writable))
               if (!load_segment (file, file_page, (void *) mem_page,
-                                 read_bytes, zero_bytes, writable))
+                                 read_bytes, zero_bytes, writable, name))
                 goto done;
             }
           else
@@ -500,57 +510,79 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
    Return true if successful, false if a memory allocation error
    or disk read error occurs. */
 static bool
+// load_segment (struct file *file, off_t ofs, uint8_t *upage,
+//               uint32_t read_bytes, uint32_t zero_bytes, bool writable)
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
-              uint32_t read_bytes, uint32_t zero_bytes, bool writable)
+              uint32_t read_bytes, uint32_t zero_bytes, bool writable, char** name)
 {
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
   file_seek (file, ofs);
-  while (read_bytes > 0 || zero_bytes > 0)
+  // while (read_bytes > 0 || zero_bytes > 0)
+  //   {
+  //
+  //     // TODO: replace this with something that adds an entry to the supplemental
+  //     // page table?
+  //
+  //     /* Calculate how to fill this page.
+  //        We will read PAGE_READ_BYTES bytes from FILE
+  //        and zero the final PAGE_ZERO_BYTES bytes. */
+  //     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+  //     size_t page_zero_bytes = PGSIZE - page_read_bytes;
+  //
+  //     /* Get a page of memory. */
+  //     //uint8_t *kpage = palloc_get_page (PAL_USER);
+  //     uint8_t *kpage = allocate_page (PAL_USER);
+  //     if (kpage == NULL)
+  //       return false;
+  //
+  //     /* Load this page. */
+  //     if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+  //       {
+  //         palloc_free_page (kpage);
+  //         return false;
+  //       }
+  //     memset (kpage + page_read_bytes, 0, page_zero_bytes);
+  //
+  //     /* Add the page to the process's address space. */
+  //     if (!install_page (upage, kpage, writable))
+  //       {
+  //         palloc_free_page (kpage);
+  //         return false;
+  //       }
+  //
+  //     /* Advance. */
+  //     read_bytes -= page_read_bytes;
+  //     zero_bytes -= page_zero_bytes;
+  //     upage += PGSIZE;
+  //
+  //     // TODO: synchronization to make sure this happens before we try to start the
+  //     // process?
+  //
+  //     // we need to know the address that the user process thinks this will be at
+  //     // along with its ACTUAL address
+  //     // how do we know where the user thinks it will be?
+  //
+  //   }
+    int file_size = sys_filesize(file);
+    while (file_size > 0)
     {
-      /* Calculate how to fill this page.
-         We will read PAGE_READ_BYTES bytes from FILE
-         and zero the final PAGE_ZERO_BYTES bytes. */
-      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-      size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
-
-      // TODO: replace this with something that adds an entry to the supplemental
-      // page table?
-
-      /* Get a page of memory. */
-      //uint8_t *kpage = palloc_get_page (PAL_USER);
-      uint8_t *kpage = allocate_page (PAL_USER);
-      if (kpage == NULL)
-        return false;
-
-      /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          palloc_free_page (kpage);
-          return false;
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable))
-        {
-          palloc_free_page (kpage);
-          return false;
-        }
-
-      /* Advance. */
-      read_bytes -= page_read_bytes;
-      zero_bytes -= page_zero_bytes;
+      struct page_table_elem* elem = malloc(sizeof(struct page_table_elem));
+      // upage is the user virtual address of the file
+      // NOT the address that the user will try to access when they want
+      // the contents of the file
+      elem->page_no = pg_no(upage);
+      elem->t = thread_current();
+      elem->file = file;
+      elem->writable = writable;
+      elem->addr = upage + ofs; // maybe not plus ofs?
+      elem->name = malloc(sizeof(name)); // TODO: does this need to be freed separately at some point?
+      strlcpy (elem->name, name, strlen(name)+1);
+      hash_insert (&s_page_table, elem);
+      file_size -= PGSIZE;
       upage += PGSIZE;
-
-      // struct page_table_elem* elem = malloc(sizeof(struct page_table_elem));
-      // elem->addr = upage + ofs;
-      // //printf("load addr %x\n", elem->addr);
-      // hash_insert (&s_page_table, elem);
-
     }
   return true;
 }
