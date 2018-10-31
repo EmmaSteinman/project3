@@ -147,6 +147,9 @@ struct page_table_elem
     struct file* file;
     char** name;
     bool writable;
+    size_t page_read_bytes;
+    size_t page_zero_bytes;
+    int ofs;
   };
 
 struct hash s_page_table;

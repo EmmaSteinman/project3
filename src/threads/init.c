@@ -304,6 +304,7 @@ run_task (char **argv)
 static void
 run_actions (char **argv)
 {
+  printf("run actions\n");
   /* An action. */
   struct action
     {

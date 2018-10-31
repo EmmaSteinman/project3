@@ -520,70 +520,60 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (ofs % PGSIZE == 0);
 
   file_seek (file, ofs);
-  // while (read_bytes > 0 || zero_bytes > 0)
-  //   {
-  //
-  //     // TODO: replace this with something that adds an entry to the supplemental
-  //     // page table?
-  //
-  //     /* Calculate how to fill this page.
-  //        We will read PAGE_READ_BYTES bytes from FILE
-  //        and zero the final PAGE_ZERO_BYTES bytes. */
-  //     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-  //     size_t page_zero_bytes = PGSIZE - page_read_bytes;
-  //
-  //     /* Get a page of memory. */
-  //     //uint8_t *kpage = palloc_get_page (PAL_USER);
-  //     uint8_t *kpage = allocate_page (PAL_USER);
-  //     if (kpage == NULL)
-  //       return false;
-  //
-  //     /* Load this page. */
-  //     if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-  //       {
-  //         palloc_free_page (kpage);
-  //         return false;
-  //       }
-  //     memset (kpage + page_read_bytes, 0, page_zero_bytes);
-  //
-  //     /* Add the page to the process's address space. */
-  //     if (!install_page (upage, kpage, writable))
-  //       {
-  //         palloc_free_page (kpage);
-  //         return false;
-  //       }
-  //
-  //     /* Advance. */
-  //     read_bytes -= page_read_bytes;
-  //     zero_bytes -= page_zero_bytes;
-  //     upage += PGSIZE;
-  //
-  //     // TODO: synchronization to make sure this happens before we try to start the
-  //     // process?
-  //
-  //     // we need to know the address that the user process thinks this will be at
-  //     // along with its ACTUAL address
-  //     // how do we know where the user thinks it will be?
-  //
-  //   }
-    int file_size = sys_filesize(file);
-    while (file_size > 0)
+  while (read_bytes > 0 || zero_bytes > 0)
     {
+
+      /* Calculate how to fill this page.
+         We will read PAGE_READ_BYTES bytes from FILE
+         and zero the final PAGE_ZERO_BYTES bytes. */
+      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+      size_t page_zero_bytes = PGSIZE - page_read_bytes;
+      
+      /* Get a page of memory. */
+      //uint8_t *kpage = palloc_get_page (PAL_USER);
+      // uint8_t *kpage = allocate_page (PAL_USER);
+      // if (kpage == NULL)
+      //   return false;
+
+      printf("pg no: %x\n",pg_no(upage));
+
       struct page_table_elem* elem = malloc(sizeof(struct page_table_elem));
-      // upage is the user virtual address of the file
-      // NOT the address that the user will try to access when they want
-      // the contents of the file
       elem->page_no = pg_no(upage);
+
       elem->t = thread_current();
       elem->file = file;
       elem->writable = writable;
-      elem->addr = upage + ofs; // maybe not plus ofs?
+      elem->addr = upage;
       elem->name = malloc(sizeof(name)); // TODO: does this need to be freed separately at some point?
+      elem->page_read_bytes = page_read_bytes;
+      elem->page_zero_bytes = page_zero_bytes;
+      elem->ofs = ofs;
       strlcpy (elem->name, name, strlen(name)+1);
+
       hash_insert (&s_page_table, elem);
-      file_size -= PGSIZE;
+
+      /* Load this page. */
+      // if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+      //   {
+      //     palloc_free_page (kpage);
+      //     return false;
+      //   }
+      // memset (kpage + page_read_bytes, 0, page_zero_bytes);
+      //
+      // /* Add the page to the process's address space. */
+      // if (!install_page (upage, kpage, writable))
+      //   {
+      //     palloc_free_page (kpage);
+      //     return false;
+      //   }
+
+      /* Advance. */
+      read_bytes -= page_read_bytes;
+      zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
     }
+
+
   return true;
 }
 

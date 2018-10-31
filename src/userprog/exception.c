@@ -7,6 +7,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/palloc.h"
+#include "lib/kernel/list.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -116,6 +117,26 @@ kill (struct intr_frame *f)
     }
 }
 
+/* Adds a mapping from user virtual address UPAGE to kernel
+   virtual address KPAGE to the page table.
+   If WRITABLE is true, the user process may modify the page;
+   otherwise, it is read-only.
+   UPAGE must not already be mapped.
+   KPAGE should probably be a page obtained from the user pool
+   with palloc_get_page().
+   Returns true on success, false if UPAGE is already mapped or
+   if memory allocation fails. */
+static bool
+install_page (void *upage, void *kpage, bool writable)
+{
+  struct thread *t = thread_current ();
+
+  /* Verify that there's not already a page at that virtual
+     address, then map our page there. */
+  return (pagedir_get_page (t->pagedir, upage) == NULL
+          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
@@ -130,7 +151,6 @@ kill (struct intr_frame *f)
 static void
 page_fault (struct intr_frame *f)
 {
-  printf("page faulting\n");
   bool not_present;  /* True: not-present page, false: writing r/o page. */
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
@@ -157,87 +177,90 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  // if (not_present)
-  // {
-  //   printf("fault address: %x\n", fault_addr);
-  //   printf("fault address page no: %x\n", pg_no(fault_addr));
-  //   struct page_table_elem p;
-  //   struct hash_elem* e;
-  //   p.t = thread_current();
-  //   p.page_no = pg_no(fault_addr);
-  //   // TODO: we may have to search through a list of entries with the same page?
-  //   e = hash_find (&s_page_table, &p.elem);
-  //   // now we use the information in this page table entry to load the correct page
-  //   uint8_t *kpage = allocate_page (PAL_USER);
-  //   if (kpage == NULL)
-  //     kill(f);
-  //     //return false;
-  //   struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
-  //   // we might not want this to have to be equal to PGSIZE but can deal with that later
-  //   if (file_read(entry->file, kpage, PGSIZE) != PGSIZE)
-  //   {
-  //     palloc_free_page (kpage);
-  //     //return false;
-  //     kill (f);
-  //   }
-  //   // TODO: zero the bytes at the end of this page? if there are any?
-  //   struct thread *t = thread_current ();
-  //
-  //   //if (!(pagedir_get_page (t->pagedir, entry->addr) == NULL && pagedir_set_page (t->pagedir, entry->addr, kpage, entry->writable)))
-  //   if (!(pagedir_get_page (t->pagedir, entry->addr) == NULL && pagedir_set_page (t->pagedir, entry->addr, kpage, entry->writable)))
-  //   {
-  //     palloc_free_page (kpage);
-  //     //return false;
-  //     kill (f);
-  //   }
-  //   printf("returning from page fault\n");
-  //   return;
-  // }
+  printf("fault addr: %x\n", fault_addr);
+  //printf("fault instr: %x\n", f->eip);
+  //printf("fault addr pg: %x\n", pg_no(fault_addr));
 
   if (not_present)
   {
     printf("not present\n");
+    printf("\n");
+
+
     struct page_table_elem p;
     struct hash_elem* e;
     p.t = thread_current();
     p.page_no = pg_no(fault_addr);
-    e = hash_find (&s_page_table, &p.elem);
 
+    e = hash_find(&s_page_table, &p.elem);
+    if (e == NULL)
+      kill(f);
+
+    struct page_table_elem* entry = hash_entry (e, struct page_table_elem, elem);
+    if (entry == NULL)
+      kill(f);
+
+    // // allocate page
+    // uint8_t *kpage = allocate_page (PAL_USER);
+    // if (kpage == NULL)
+    // {
+    //   kill(f);
+    // }
+    //
+    // struct file* file = filesys_open(entry->name);
+    // file_seek (file, entry->ofs);
+    // if (file_read (file, kpage, entry->page_read_bytes) != (int) entry->page_read_bytes)
+    // {
+    //   palloc_free_page (kpage);
+    //   return false;
+    // }
+    // //filesys_close (file);
+    // file_close (file);
+    // memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
+    //
+    // if (!install_page (entry->addr, kpage, entry->writable))
+    //   {
+    //     palloc_free_page (kpage);
+    //     return false;
+    //   }
+
+    /* Get a page of memory. */
+    //uint8_t *kpage = palloc_get_page (PAL_USER);
     uint8_t *kpage = allocate_page (PAL_USER);
     if (kpage == NULL)
       kill(f);
 
-    struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
+    /* Load this page. */
+    struct file* file = filesys_open (entry->name);
+    if (file_read (file, kpage, entry->page_read_bytes) != (int) entry->page_read_bytes)
+      {
+        palloc_free_page (kpage);
+        kill(f);
+      }
 
-    int fd = sys_open(entry->name);
-    // TODO: we probably don't actually want to compare this to PGSIZE
-    // we probably want to set how much of the page we want to read in the
-    // supplemental page table entry
-    if (sys_read (fd, kpage, PGSIZE) != PGSIZE)
-    {
-      palloc_free_page (kpage);
-      kill (f);
-    }
+    memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
+    //
+    /* Add the page to the process's address space. */
+    if (!install_page (entry->addr, kpage, entry->writable))
+      {
+        palloc_free_page (kpage);
+        kill(f);
+      }
 
-    // need to put it into the page directory?
-
-    struct thread *t = thread_current ();
-
-    if (pagedir_get_page(t->pagedir, entry->addr) == NULL)
-      // TODO: what happens if setting the page fails
-      pagedir_set_page (t->pagedir, entry->addr, kpage, entry->writable);
-
-    // something is failing because we are trying to write to it and we don't have permission
+    file_close (file);
     return;
   }
 
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+  printf("different problem\n");
+    /* To implement virtual memory, delete the rest of the function
+       body, and replace it with code that brings in the page to
+       which fault_addr refers. */
+    printf ("Page fault at %p: %s error %s page in %s context.\n",
+            fault_addr,
+            not_present ? "not present" : "rights violation",
+            write ? "writing" : "reading",
+            user ? "user" : "kernel");
+    kill (f);
+  //}
+
 }
