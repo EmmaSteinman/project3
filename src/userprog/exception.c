@@ -177,81 +177,43 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  printf("fault addr: %x\n", fault_addr);
-  //printf("fault instr: %x\n", f->eip);
-  //printf("fault addr pg: %x\n", pg_no(fault_addr));
-
   if (not_present)
   {
-    printf("not present\n");
-    printf("\n");
-
-
-    struct page_table_elem p;
     struct hash_elem* e;
-    p.t = thread_current();
-    p.page_no = pg_no(fault_addr);
+    struct page_table_elem p;
 
-    e = hash_find(&s_page_table, &p.elem);
+    p.page_no = pg_no (fault_addr);
+
+    e = hash_find (&s_page_table, &p.elem);
     if (e == NULL)
       kill(f);
 
-    struct page_table_elem* entry = hash_entry (e, struct page_table_elem, elem);
+    struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
     if (entry == NULL)
       kill(f);
 
-    // // allocate page
-    // uint8_t *kpage = allocate_page (PAL_USER);
-    // if (kpage == NULL)
-    // {
-    //   kill(f);
-    // }
-    //
-    // struct file* file = filesys_open(entry->name);
-    // file_seek (file, entry->ofs);
-    // if (file_read (file, kpage, entry->page_read_bytes) != (int) entry->page_read_bytes)
-    // {
-    //   palloc_free_page (kpage);
-    //   return false;
-    // }
-    // //filesys_close (file);
-    // file_close (file);
-    // memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
-    //
-    // if (!install_page (entry->addr, kpage, entry->writable))
-    //   {
-    //     palloc_free_page (kpage);
-    //     return false;
-    //   }
-
-    /* Get a page of memory. */
-    //uint8_t *kpage = palloc_get_page (PAL_USER);
     uint8_t *kpage = allocate_page (PAL_USER);
     if (kpage == NULL)
       kill(f);
 
-    /* Load this page. */
-    struct file* file = filesys_open (entry->name);
-    if (file_read (file, kpage, entry->page_read_bytes) != (int) entry->page_read_bytes)
+    struct file* file = filesys_open(entry->name);
+    file_seek (file, entry->pos);
+    if (file_read (file, kpage, entry->page_read_bytes) != entry->page_read_bytes)
       {
         palloc_free_page (kpage);
         kill(f);
       }
-
+    file_close(file);
     memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
-    //
-    /* Add the page to the process's address space. */
+
     if (!install_page (entry->addr, kpage, entry->writable))
       {
         palloc_free_page (kpage);
-        kill(f);
+        return false;
       }
-
-    file_close (file);
     return;
   }
 
-  printf("different problem\n");
     /* To implement virtual memory, delete the rest of the function
        body, and replace it with code that brings in the page to
        which fault_addr refers. */

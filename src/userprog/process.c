@@ -515,11 +515,14 @@ static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable, char** name)
 {
+  // printf("name: %s\n", name);
+  // printf("upage: %x\n", upage);
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
   file_seek (file, ofs);
+  int pos = 0;
   while (read_bytes > 0 || zero_bytes > 0)
     {
 
@@ -528,31 +531,15 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
          and zero the final PAGE_ZERO_BYTES bytes. */
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
-      
-      /* Get a page of memory. */
-      //uint8_t *kpage = palloc_get_page (PAL_USER);
+
+      // /* Get a page of memory. */
+      // //uint8_t *kpage = palloc_get_page (PAL_USER);
       // uint8_t *kpage = allocate_page (PAL_USER);
       // if (kpage == NULL)
       //   return false;
-
-      printf("pg no: %x\n",pg_no(upage));
-
-      struct page_table_elem* elem = malloc(sizeof(struct page_table_elem));
-      elem->page_no = pg_no(upage);
-
-      elem->t = thread_current();
-      elem->file = file;
-      elem->writable = writable;
-      elem->addr = upage;
-      elem->name = malloc(sizeof(name)); // TODO: does this need to be freed separately at some point?
-      elem->page_read_bytes = page_read_bytes;
-      elem->page_zero_bytes = page_zero_bytes;
-      elem->ofs = ofs;
-      strlcpy (elem->name, name, strlen(name)+1);
-
-      hash_insert (&s_page_table, elem);
-
-      /* Load this page. */
+      //
+      //
+      // /* Load this page. */
       // if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
       //   {
       //     palloc_free_page (kpage);
@@ -567,8 +554,22 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       //     return false;
       //   }
 
+      struct page_table_elem* entry = malloc(sizeof(struct page_table_elem));
+      entry->t = thread_current();
+      entry->addr = upage;
+      entry->ofs = ofs;
+      entry->page_read_bytes = page_read_bytes;
+      entry->page_zero_bytes = page_zero_bytes;
+      entry->page_no = pg_no(upage);
+      entry->name = name;
+      entry->writable = writable;
+      entry->pos = pos;
+
+      hash_insert (&s_page_table, &entry->elem);
+
       /* Advance. */
       read_bytes -= page_read_bytes;
+      pos += page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
     }

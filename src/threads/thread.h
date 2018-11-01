@@ -150,6 +150,7 @@ struct page_table_elem
     size_t page_read_bytes;
     size_t page_zero_bytes;
     int ofs;
+    int pos;
   };
 
 struct hash s_page_table;
