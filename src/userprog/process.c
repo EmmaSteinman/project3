@@ -32,12 +32,14 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
+
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0); // don't replace with allocate_page because this pulls from kernel pool
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+
 
   // extract ONLY the file name so we can name the process
   // since strtok_r changes the arg string, we need to make a copy
@@ -48,6 +50,7 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (copy2, file_name, PGSIZE);
   char* fn = strtok_r(copy2, " ", &save_ptr);
+
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (fn, PRI_DEFAULT, start_process, fn_copy);
@@ -77,7 +80,6 @@ process_execute (const char *file_name)
         lock_release(&entry->lock);
       }
     }
-
   // struct thread* cur = thread_current();;
   // if (cur->tid > 1 && child_thread != NULL)
   //   list_push_back (&cur->element->children, &child_thread->child_elem);
@@ -194,6 +196,8 @@ process_wait (tid_t child_tid)
   list_remove(&elem->elem); // remove the child thread's element from the list since we have now waited on it
   lock_release(&elem->lock);
   sema_down(&child_thread->process_sema);
+
+
 
   lock_acquire(&elem->lock);
   int status = elem->exit_status;
@@ -532,8 +536,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      // /* Get a page of memory. */
-      // //uint8_t *kpage = palloc_get_page (PAL_USER);
+      /* Get a page of memory. */
+      //uint8_t *kpage = palloc_get_page (PAL_USER);
       // uint8_t *kpage = allocate_page (PAL_USER);
       // if (kpage == NULL)
       //   return false;
@@ -556,6 +560,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
       struct page_table_elem* entry = malloc(sizeof(struct page_table_elem));
       entry->t = thread_current();
+      // printf("t name: %s\n", entry->t->name);
       entry->addr = upage;
       entry->ofs = ofs;
       entry->page_read_bytes = page_read_bytes;
@@ -565,7 +570,13 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       entry->writable = writable;
       entry->pos = pos;
 
-      hash_insert (&s_page_table, &entry->elem);
+      struct hash_elem* h = hash_insert (&s_page_table, &entry->elem);
+      // if h isn't null, then there was a collision
+      // if (h != NULL)
+      // {
+      //   printf("PROBLEM\n");
+      //   list_insert (&h->list_elem, &entry->elem.list_elem);
+      // }
 
       /* Advance. */
       read_bytes -= page_read_bytes;

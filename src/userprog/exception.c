@@ -179,37 +179,60 @@ page_fault (struct intr_frame *f)
 
   if (not_present)
   {
+    // printf("not_present\n");
+    // printf("fault_addr: %x\n", fault_addr);
     struct hash_elem* e;
     struct page_table_elem p;
 
     p.page_no = pg_no (fault_addr);
+    p.t = thread_current();
 
     e = hash_find (&s_page_table, &p.elem);
     if (e == NULL)
+    {
       kill(f);
+    }
 
     struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
     if (entry == NULL)
+    {
       kill(f);
+    }
+
+    // TODO: handle collisions
 
     uint8_t *kpage = allocate_page (PAL_USER);
     if (kpage == NULL)
+    {
       kill(f);
+    }
 
+    bool acquired_lock = false;
+    if (!lock_held_by_current_thread(&file_lock))
+    {
+      acquired_lock = true;
+      lock_acquire(&file_lock);
+    }
     struct file* file = filesys_open(entry->name);
-    file_seek (file, entry->pos);
+    file_seek (file, entry->pos + entry->ofs);
+
     if (file_read (file, kpage, entry->page_read_bytes) != entry->page_read_bytes)
       {
+        //lock_release(&file_lock);
+        if (acquired_lock == true)
+          lock_release(&file_lock);
         palloc_free_page (kpage);
         kill(f);
       }
     file_close(file);
+    if (acquired_lock == true)
+      lock_release(&file_lock);
     memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
 
     if (!install_page (entry->addr, kpage, entry->writable))
       {
         palloc_free_page (kpage);
-        return false;
+        kill(f);
       }
     return;
   }

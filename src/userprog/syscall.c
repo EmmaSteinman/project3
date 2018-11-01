@@ -97,6 +97,7 @@ int sys_open (const char* file)
 
   lock_acquire(&file_lock);
   file_ptr = filesys_open(file);
+  lock_release(&file_lock);
   if (file_ptr != NULL) {
     /* add file to this thread's fd_list */
     struct thread *t = thread_current();
@@ -108,7 +109,7 @@ int sys_open (const char* file)
     t->num_file++;
     fd = fd_elem->fd;
   }
-  lock_release(&file_lock);
+
   return fd;
 }
 
@@ -165,8 +166,6 @@ sys_filesize (int fd)
 int sys_read (int fd, const void *buffer, unsigned size)
 {
   /* read in file according to input type */
-  lock_acquire(&file_lock);
-
   int ret = -1;
 
   /* STDIN */
@@ -194,17 +193,19 @@ int sys_read (int fd, const void *buffer, unsigned size)
       if(fd_read->fd == fd){
         file_ptr = fd_read->file;
         if (file_ptr)
+        {
+          lock_acquire(&file_lock);
           ret = file_read(file_ptr, buffer, size);
+          lock_release(&file_lock);
+        }
         else
           ret = -1;
-
         break;
 
       }
     }
   }
 
-  lock_release(&file_lock);
 
   return ret;
 }
@@ -213,7 +214,6 @@ int
 sys_write (int fd, const void *buffer, unsigned size)
 {
   /* read in file according to input type */
-  lock_acquire(&file_lock);
 
   int ret = -1;
 
@@ -241,7 +241,11 @@ sys_write (int fd, const void *buffer, unsigned size)
       if(fd_write->fd == fd){
         file_ptr = fd_write->file;
         if (file_ptr)
+        {
+          lock_acquire(&file_lock);
           ret = file_write(file_ptr, buffer, size);
+          lock_release(&file_lock);
+        }
         else
           ret = -1;
 
@@ -250,7 +254,7 @@ sys_write (int fd, const void *buffer, unsigned size)
     }
   }
 
-  lock_release(&file_lock);
+
   return ret;
 }
 
@@ -390,7 +394,9 @@ syscall_handler (struct intr_frame *f)
       check_address (arg2);
       check_address (arg3);
       for (i = 0; i < *(int*)arg3; i++)
+      {
         check_address(*(char**)arg2+i);
+      }
       f->eax = sys_read (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
@@ -454,11 +460,22 @@ check_address (void* addr)
     // if the user passed in an unmapped address, we want to exit
     if (kernel_addr == NULL)
     {
-      struct thread* cur = thread_current();
-      lock_acquire(&cur->element->lock);
-      cur->element->exit_status = -1;
-      lock_release(&cur->element->lock);
-      thread_exit();
+      // first: check to see if the page we want is in the supplemental page table
+      // if it is, then we'll load it when we page fault
+      struct hash_elem* e;
+      struct page_table_elem p;
+      p.page_no = pg_no (addr+i);
+      p.t = thread_current();
+      e = hash_find (&s_page_table, &p.elem);
+      // if it's not, then we can kill the thread
+      if (e == NULL)
+      {
+        struct thread* cur = thread_current();
+        lock_acquire(&cur->element->lock);
+        cur->element->exit_status = -1;
+        lock_release(&cur->element->lock);
+        thread_exit();
+      }
     }
   }
 }

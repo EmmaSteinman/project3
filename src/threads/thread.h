@@ -138,6 +138,9 @@ struct thread_elem
 
 struct list thread_list;
 
+/* To find an element in the supplemental page table, create one of these
+   page_table_elem's and set its page number and t (thread) field. This
+   is the information that we use to compute the hash of an entry. */
 struct page_table_elem
   {
     struct hash_elem elem;
