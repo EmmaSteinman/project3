@@ -47,7 +47,7 @@ bool hash_less (const struct hash_elem *a, const struct hash_elem *b, void *aux)
   struct page_table_elem* elem_a = hash_entry(a, struct page_table_elem, elem);
   struct page_table_elem* elem_b = hash_entry(b, struct page_table_elem, elem);
   //return elem_a->addr < elem_b->addr;
-  return elem_a->page_no < elem_b->page_no;
+  return (elem_a->page_no + elem_a->t) < (elem_b->page_no + elem_b->t);
 }
 
 int hash_func (const struct hash_elem *element, void *aux UNUSED)
@@ -324,6 +324,13 @@ find_bucket (struct hash *h, struct hash_elem *e)
   return &h->buckets[bucket_idx];
 }
 
+// // NEW
+// struct list*
+// get_bucket (struct hash *h, struct hash_elem *e)
+// {
+//   return find_bucket (h, e);
+// }
+
 /* Searches BUCKET in H for a hash element equal to E.  Returns
    it if found or a null pointer otherwise. */
 static struct hash_elem *
@@ -434,6 +441,12 @@ insert_elem (struct hash *h, struct list *bucket, struct hash_elem *e)
   h->elem_cnt++;
   list_push_front (bucket, &e->list_elem);
 }
+
+// void
+// insert_elem2 (struct hash *h, struct list *bucket, struct hash_elem *e)
+// {
+//   insert_elem (h, bucket, e);
+// }
 
 /* Removes E from hash table H. */
 static void

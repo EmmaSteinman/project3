@@ -324,6 +324,28 @@ thread_exit (void)
   // }
   // lock_release(&cur->element->lock);
 
+  // remove the entries in the supplemental page table that correspond to this thread
+  struct hash_iterator i;
+  hash_first (&i, &s_page_table);
+  struct list to_delete;
+  list_init (&to_delete);
+
+  while (hash_next (&i))
+  {
+    struct page_table_elem *entry = hash_entry(hash_cur(&i), struct page_table_elem, elem);
+    if (entry->t == thread_current())
+    {
+      list_push_back(&to_delete, &entry->list_elem);
+    }
+  }
+
+  while (!list_empty (&to_delete))
+    {
+      struct list_elem *e = list_pop_front (&to_delete);
+      struct page_table_elem* p = list_entry (e, struct page_table_elem, list_elem);
+      hash_delete (&s_page_table, &p->elem);
+      free(p);
+    }
 
   list_remove (&cur->allelem);
   lock_acquire(&cur->element->lock);

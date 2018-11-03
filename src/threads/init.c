@@ -101,6 +101,7 @@ pintos_init (void)
   paging_init ();
 
   hash_init (&s_page_table, hash_func, hash_less, NULL);
+  lock_init (&spt_lock);
 
   /* Segmentation. */
 #ifdef USERPROG

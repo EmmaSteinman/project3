@@ -214,7 +214,6 @@ int
 sys_write (int fd, const void *buffer, unsigned size)
 {
   /* read in file according to input type */
-
   int ret = -1;
 
   /* STDIN */
@@ -387,6 +386,7 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_READ:
+      //printf("sys read\n");
       arg1 = f->esp + 4;
       arg2 = f->esp + 8;
       arg3 = f->esp + 12;
@@ -398,6 +398,7 @@ syscall_handler (struct intr_frame *f)
         check_address(*(char**)arg2+i);
       }
       f->eax = sys_read (*(int*)arg1, *(char**)arg2, *(int*)arg3);
+      //printf("done reading\n");
       break;
 
     case SYS_WRITE:

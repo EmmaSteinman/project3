@@ -43,10 +43,42 @@ The `frame_entry` struct represents an entry in the frame table. The frame table
 
 - `void * allocate_page (enum palloc_flags flags);`: a function that replaces `palloc_get_page()` when the kernel needs to allocate a page for a user process. Uses `palloc_get_page()` to allocate a page, then uses that page to create a new entry in the frame table.
 
+In thread.h:
+
+```  
+  struct page_table_elem
+    {
+      struct hash_elem elem;
+      void* addr;
+      int page_no;
+      struct thread* t;
+      struct file* file;
+      char** name;
+      bool writable;
+      size_t page_read_bytes;
+      size_t page_zero_bytes;
+      int ofs;
+      int pos;
+      struct list_elem list_elem;
+    };
+```
+
+A `page_table_elem` is an element of the supplemental page table. It contains all of the necessary information about an entry in the page table and is used to determine what data should be loaded and where it should be put when a page fault occurs due to data not being present.
+
+- `struct hash s_page_table;`: the supplemental page table.
+- `struct lock spt_lock;`: a lock used with the supplemental page table to prevent race conditions when we access and change entries of the table.
+
 #### ALGORITHMS
 
 > A2: In a few paragraphs, describe your code for accessing the data
 > stored in the SPT about a given page.
+
+**write more on this later**
+- entries are stored in a hash table
+- we hash by page number + thread struct pointer; this reduces collisions
+- when we need to access the SPT, we can just create a `page_table_elem` with the page number and thread pointer that we want, and this will provide all of the information that was previously saved about this entry and will let us load it
+
+*need to add more here when swapping and stuff is implemented*
 
 > A3: How does your code coordinate accessed and dirty bits between
 > kernel and user virtual addresses that alias a single frame, or other aliasing that might occur through sharing?
@@ -117,8 +149,8 @@ The `frame_entry` struct represents an entry in the frame table. The frame table
 
 #### DATA STRUCTURES ####
 
-> C1: Copy here the declaration of each new or changed `struct' or
-> `struct' member, global or static variable, `typedef', or
+> C1: Copy here the declaration of each new or changed `struct` or
+> `struct` member, global or static variable, `typedef`, or
 > enumeration.  Identify the purpose of each in 25 words or less.
 
 #### ALGORITHMS ####

@@ -143,20 +143,22 @@ struct list thread_list;
    is the information that we use to compute the hash of an entry. */
 struct page_table_elem
   {
-    struct hash_elem elem;
-    void* addr;
-    int page_no;
-    struct thread* t;
-    struct file* file;
-    char** name;
-    bool writable;
-    size_t page_read_bytes;
-    size_t page_zero_bytes;
-    int ofs;
-    int pos;
+    struct hash_elem elem;  // element to go in the hash table
+    void* addr;             // virtual address of the associated page
+    int page_no;            // page number
+    struct thread* t;       // thread associated with this entry
+    struct file* file;      // is this used?
+    char** name;            // name of the file associated with this entry
+    bool writable;          // keeps track of whether this page is writable
+    size_t page_read_bytes; // number of bytes to read into this page from the file
+    size_t page_zero_bytes; // number of bytes to set to zero at the end of the page
+    int ofs;                // offset to read from file
+    int pos;                // position to read from file
+    struct list_elem list_elem; // allows this element to be put in a list for deletion
   };
 
 struct hash s_page_table;
+struct lock spt_lock;
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

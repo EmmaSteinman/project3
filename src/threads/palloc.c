@@ -136,7 +136,6 @@ allocate_page (enum palloc_flags flags)
   uintptr_t pfn = pg_no (phys_ptr);
 
   // initialize the new frame table entry
-  // TODO: free this when we free the page or we're gonna get a memory leak
   struct frame_entry* entry = malloc(sizeof(struct frame_entry));
   entry->t = thread_current();
 

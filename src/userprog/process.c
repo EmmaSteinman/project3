@@ -536,13 +536,13 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
-      //uint8_t *kpage = palloc_get_page (PAL_USER);
+      // /* Get a page of memory. */
+      // //uint8_t *kpage = palloc_get_page (PAL_USER);
       // uint8_t *kpage = allocate_page (PAL_USER);
       // if (kpage == NULL)
       //   return false;
       //
-      //
+      // printf("upage: %x\n", upage);
       // /* Load this page. */
       // if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
       //   {
@@ -560,7 +560,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
       struct page_table_elem* entry = malloc(sizeof(struct page_table_elem));
       entry->t = thread_current();
-      // printf("t name: %s\n", entry->t->name);
       entry->addr = upage;
       entry->ofs = ofs;
       entry->page_read_bytes = page_read_bytes;
@@ -570,13 +569,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       entry->writable = writable;
       entry->pos = pos;
 
+      // TODO: handle collisions?
+
+      lock_acquire (&spt_lock);
       struct hash_elem* h = hash_insert (&s_page_table, &entry->elem);
-      // if h isn't null, then there was a collision
-      // if (h != NULL)
-      // {
-      //   printf("PROBLEM\n");
-      //   list_insert (&h->list_elem, &entry->elem.list_elem);
-      // }
+      lock_release (&spt_lock);
 
       /* Advance. */
       read_bytes -= page_read_bytes;
