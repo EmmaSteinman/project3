@@ -65,6 +65,8 @@ In thread.h:
 
 A `page_table_elem` is an element of the supplemental page table. It contains all of the necessary information about an entry in the page table and is used to determine what data should be loaded and where it should be put when a page fault occurs due to data not being present.
 
+In the `thread` struct:
+
 - `struct hash s_page_table;`: the supplemental page table.
 - `struct lock spt_lock;`: a lock used with the supplemental page table to prevent race conditions when we access and change entries of the table.
 
@@ -75,6 +77,7 @@ A `page_table_elem` is an element of the supplemental page table. It contains al
 
 **write more on this later**
 - entries are stored in a hash table
+- there is a supplemental page table for each thread
 - we hash by page number + thread struct pointer; this reduces collisions
 - when we need to access the SPT, we can just create a `page_table_elem` with the page number and thread pointer that we want, and this will provide all of the information that was previously saved about this entry and will let us load it
 
@@ -88,10 +91,19 @@ A `page_table_elem` is an element of the supplemental page table. It contains al
 > A4: When two user processes both need a new frame at the same time,
 > how are races avoided?
 
+We use a lock, `alloc_lock`, in palloc.c to prevent race conditions. User processes should only try to allocate a page via our `allocate_page()` function, so this lock goes around the code in this function. This ensures that two user processes cannot execute `allocate_page()` concurrently and thus there will be no race conditions surrounding page/frame acquisition.
+
+We do *not* use `alloc_lock` in situations where the kernel is getting a new frame. There will not be any races between user and kernel processes when acquiring frames because they do not share page pools.
+
+
 #### RATIONALE
 
 > A5: Why did you choose the data structure(s) that you did for
 > representing virtual-to-physical mappings?
+
+Our frame table, which keeps track of which frames are in use, is an array. This is not the most space efficient representation, as it requires a slot in the array even for frames that are not in use. We could potentially make this more efficient by using a multi-level frame table like the page directories that we discussed in class. However, each slot in the array only holds a 4-byte pointer to a `frame_entry` struct, so we do not have to allocate much memory for unused frames. We chose to use an array because it is much more time efficient to find a specific frame entry in an array than it is in a list. We index into the frame table using the PFN of an address, so in order to access the frame table entry corresponding to an address, we just need to convert it to a physical address and extract its frame number. This process only requires some simple bit manipulations and is thus significantly faster than alternatives like iterating through a list to find the entry we want. Also, the time required to access an entry in the frame table stays constant regardless of how many frames are in use, which is not true of a list. The space overhead of our array approach and a list-based approach also become closer as more and more frames come into use.
+
+We used hash tables to implement our supplemental page table. Each thread has a hash table that contains supplemental page table entries that are hashed by VPN. Different threads may try to place pages in the same virtual addresses in their distinct address spaces, so keeping the SPTs separate for each thread prevents collisions and makes it easy to free resources when a thread exits. Like our array approach to the frame table, hash tables are very time efficient and allow us to quickly access entries. The provided hash table implementation also provides functions that make it very easy to insert values into a hash table and to delete a hash table, two important operations with our SPTs. It also takes care of space management and rehashing, which makes our code easier to write, debug, and understand.
 
 ### B. PAGING TO AND FROM DISK
 #### DATA STRUCTURES

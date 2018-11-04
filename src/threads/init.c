@@ -100,8 +100,8 @@ pintos_init (void)
   malloc_init ();
   paging_init ();
 
-  hash_init (&s_page_table, hash_func, hash_less, NULL);
-  lock_init (&spt_lock);
+  // hash_init (&s_page_table, hash_func, hash_less, NULL);
+  // lock_init (&spt_lock);
 
   /* Segmentation. */
 #ifdef USERPROG

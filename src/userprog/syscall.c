@@ -467,7 +467,7 @@ check_address (void* addr)
       struct page_table_elem p;
       p.page_no = pg_no (addr+i);
       p.t = thread_current();
-      e = hash_find (&s_page_table, &p.elem);
+      e = hash_find (&thread_current()->s_page_table, &p.elem);
       // if it's not, then we can kill the thread
       if (e == NULL)
       {

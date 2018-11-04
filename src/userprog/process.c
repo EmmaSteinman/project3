@@ -1,3 +1,4 @@
+
 #include "userprog/process.h"
 #include <debug.h>
 #include <inttypes.h>
@@ -80,9 +81,6 @@ process_execute (const char *file_name)
         lock_release(&entry->lock);
       }
     }
-  // struct thread* cur = thread_current();;
-  // if (cur->tid > 1 && child_thread != NULL)
-  //   list_push_back (&cur->element->children, &child_thread->child_elem);
 
   return tid;
 }
@@ -519,8 +517,6 @@ static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable, char** name)
 {
-  // printf("name: %s\n", name);
-  // printf("upage: %x\n", upage);
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
@@ -558,8 +554,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       //     return false;
       //   }
 
+      struct thread* t = thread_current();
+
       struct page_table_elem* entry = malloc(sizeof(struct page_table_elem));
-      entry->t = thread_current();
+      entry->t = t;
       entry->addr = upage;
       entry->ofs = ofs;
       entry->page_read_bytes = page_read_bytes;
@@ -571,9 +569,9 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
       // TODO: handle collisions?
 
-      lock_acquire (&spt_lock);
-      struct hash_elem* h = hash_insert (&s_page_table, &entry->elem);
-      lock_release (&spt_lock);
+      lock_acquire (&t->spt_lock);
+      struct hash_elem* h = hash_insert (&t->s_page_table, &entry->elem);
+      lock_release (&t->spt_lock);
 
       /* Advance. */
       read_bytes -= page_read_bytes;

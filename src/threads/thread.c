@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include <hash.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -195,6 +196,9 @@ thread_create (const char *name, int priority,
   lock_init (&t->element->lock);
   list_push_back (&thread_list, &e->elem);
 
+  hash_init (&t->s_page_table, hash_func, hash_less, NULL);
+  lock_init (&t->spt_lock);
+
   tid = t->tid = allocate_tid ();
   t->element->tid = tid;
 
@@ -317,35 +321,12 @@ thread_exit (void)
       free(entry);
     }
 
-  // lock_acquire(&cur->element->lock);
-  // if (cur->child_elem.next != NULL)
-  // {
-  //   list_remove(&cur->child_elem);
-  // }
-  // lock_release(&cur->element->lock);
-
-  // remove the entries in the supplemental page table that correspond to this thread
-  struct hash_iterator i;
-  hash_first (&i, &s_page_table);
-  struct list to_delete;
-  list_init (&to_delete);
-
-  while (hash_next (&i))
-  {
-    struct page_table_elem *entry = hash_entry(hash_cur(&i), struct page_table_elem, elem);
-    if (entry->t == thread_current())
-    {
-      list_push_back(&to_delete, &entry->list_elem);
-    }
-  }
-
-  while (!list_empty (&to_delete))
-    {
-      struct list_elem *e = list_pop_front (&to_delete);
-      struct page_table_elem* p = list_entry (e, struct page_table_elem, list_elem);
-      hash_delete (&s_page_table, &p->elem);
-      free(p);
-    }
+  // destroy the thread's SPT
+  // the pages associated with this thread's process are freed when we call
+  // process_exit() above, so there is no need to free them here
+  lock_acquire (&cur->spt_lock);
+  hash_destroy (&cur->s_page_table, destroy_hash);
+  lock_release (&cur->spt_lock);
 
   list_remove (&cur->allelem);
   lock_acquire(&cur->element->lock);

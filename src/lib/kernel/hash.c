@@ -1,3 +1,4 @@
+
 /* Hash table.
 
    This data structure is thoroughly documented in the Tour of
@@ -47,13 +48,21 @@ bool hash_less (const struct hash_elem *a, const struct hash_elem *b, void *aux)
   struct page_table_elem* elem_a = hash_entry(a, struct page_table_elem, elem);
   struct page_table_elem* elem_b = hash_entry(b, struct page_table_elem, elem);
   //return elem_a->addr < elem_b->addr;
-  return (elem_a->page_no + elem_a->t) < (elem_b->page_no + elem_b->t);
+  //return (elem_a->page_no + elem_a->t) < (elem_b->page_no + elem_b->t);
+  return elem_a->page_no < elem_b->page_no;
 }
 
 int hash_func (const struct hash_elem *element, void *aux UNUSED)
 {
   struct page_table_elem* entry = hash_entry(element, struct page_table_elem, elem);
-  return hash_int(entry->page_no + entry->t);
+  //return hash_int(entry->page_no + entry->t);
+  return hash_int(entry->page_no);
+}
+
+/* Frees the hash element for destruction. */
+void destroy_hash (struct hash_elem *element, void *aux)
+{
+  free (element);
 }
 
 /* Removes all the elements from H.

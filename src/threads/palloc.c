@@ -10,6 +10,7 @@
 #include "threads/loader.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 
 /* Page allocator.  Hands out memory in page-size (or
    page-multiple) chunks.  See malloc.h for an allocator that
@@ -32,6 +33,8 @@ struct pool
     struct bitmap *used_map;            /* Bitmap of free pages. */
     uint8_t *base;                      /* Base of pool. */
   };
+
+struct lock alloc_lock;
 
 /* Two pools: one for kernel data, one for user pages. */
 static struct pool kernel_pool, user_pool;
@@ -65,6 +68,8 @@ palloc_init (size_t user_page_limit)
   // allocate the frame table
   // TODO: do we need to free this at some point? probably not but maybe
   frame_table = malloc(sizeof(struct frame_entry*) * user_pages);
+
+  lock_init (&alloc_lock);
 }
 
 /* Obtains and returns a group of PAGE_CNT contiguous free pages.
@@ -126,6 +131,7 @@ palloc_get_page (enum palloc_flags flags)
 void *
 allocate_page (enum palloc_flags flags)
 {
+  lock_acquire (&alloc_lock);
   // set to PAL_USER and PAL_ASSERT so that the kernel panics if we are out
   // of pages; change this in the future when we implement swapping
   void* va_ptr = palloc_get_page(flags | PAL_ASSERT);
@@ -141,6 +147,7 @@ allocate_page (enum palloc_flags flags)
 
   // add the entry to the frame table at the index of the PFN
   frame_table[pfn] = entry;
+  lock_release (&alloc_lock);
 
   return va_ptr;
 }

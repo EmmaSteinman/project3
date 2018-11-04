@@ -114,7 +114,9 @@ struct thread
     struct thread_elem* element;        /* Element associated with this thread in thread_list. */
     struct semaphore exec_sema;         /* Semaphore used to synchronize thread creation in process_execute(). */
     struct list locks;                  /* List of locks currently held by this thread. */
-    //struct list_elem child_elem;
+
+    struct hash s_page_table;
+    struct lock spt_lock;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -133,7 +135,6 @@ struct thread_elem
     struct thread* parent;
     struct lock lock;
     struct thread* thread;
-    //struct list children;
   };
 
 struct list thread_list;
@@ -156,9 +157,6 @@ struct page_table_elem
     int pos;                // position to read from file
     struct list_elem list_elem; // allows this element to be put in a list for deletion
   };
-
-struct hash s_page_table;
-struct lock spt_lock;
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

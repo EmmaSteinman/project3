@@ -181,26 +181,29 @@ page_fault (struct intr_frame *f)
   {
     struct hash_elem* e;
     struct page_table_elem p;
+    struct thread* t = thread_current();
 
     p.page_no = pg_no (fault_addr);
-    p.t = thread_current();
+    p.t = t;
 
-    lock_acquire (&spt_lock);
-    e = hash_find (&s_page_table, &p.elem);
-    lock_release (&spt_lock);
+    lock_acquire (&t->spt_lock);
+    e = hash_find (&t->s_page_table, &p.elem);
+    lock_release (&t->spt_lock);
     if (e == NULL)
     {
       kill(f);
     }
 
-    lock_acquire (&spt_lock);
+    lock_acquire (&t->spt_lock);
     struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
-    lock_release (&spt_lock);
+    lock_release (&t->spt_lock);
     if (entry == NULL)
     {
       kill(f);
     }
 
+    // TODO: use a lock when allocating pages so that we don't get races
+    // when two user processes both need a frame at the same time?
     uint8_t *kpage = allocate_page (PAL_USER);
 
     if (kpage == NULL)

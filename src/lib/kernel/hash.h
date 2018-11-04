@@ -102,8 +102,9 @@ unsigned hash_int (int);
 
 bool hash_less (const struct hash_elem *a, const struct hash_elem *b, void *aux);
 int hash_func (const struct hash_elem *element, void *aux);
+void destroy_hash (struct hash_elem *element, void *aux);
 
-struct list* get_bucket (struct hash *h, struct hash_elem *e);
-void insert_elem2 (struct hash *h, struct list *bucket, struct hash_elem *e);
+//struct list* get_bucket (struct hash *h, struct hash_elem *e);
+//void insert_elem2 (struct hash *h, struct list *bucket, struct hash_elem *e);
 
 #endif /* lib/kernel/hash.h */
