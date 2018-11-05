@@ -567,8 +567,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       entry->writable = writable;
       entry->pos = pos;
 
-      // TODO: handle collisions?
-
       lock_acquire (&t->spt_lock);
       struct hash_elem* h = hash_insert (&t->s_page_table, &entry->elem);
       lock_release (&t->spt_lock);

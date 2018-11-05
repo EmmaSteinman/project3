@@ -179,70 +179,114 @@ page_fault (struct intr_frame *f)
 
   if (not_present)
   {
-    struct hash_elem* e;
-    struct page_table_elem p;
-    struct thread* t = thread_current();
-
-    p.page_no = pg_no (fault_addr);
-    p.t = t;
-
-    lock_acquire (&t->spt_lock);
-    e = hash_find (&t->s_page_table, &p.elem);
-    lock_release (&t->spt_lock);
-    if (e == NULL)
+    //printf("not present\n");
+    // if the fault address is right below the stack, we need to grow the stack
+    if ((int)f->esp - (int)fault_addr <= 32 && (int)f->esp - (int)fault_addr > -100000)
     {
-      kill(f);
-    }
+      // printf("grow stack\n");
+      // printf("%i\n", (int)f->esp - (int)fault_addr);
+      //printf("size of thing to write: %i\n", sizeof((char*)fault_addr));
+      // need to calculate how many additional pages are necessary (why would it be more than 1?)
+      // check that we have not exceeded the absolute maximum number of stack pages, which you have to set maybe?
+      // STACK_SIZE
+      // "consider potential for stack/heap collisions"
+      // printf("stack pointer: %x\n", f->esp);
+      // printf("fault address: %x\n", fault_addr);
+      // printf("fault address rounded up: %x\n", pg_round_up(fault_addr));
+      // printf("fault address rounded down: %x\n", pg_round_down(fault_addr));
+      // TODO: check that we won't exceed the max stack size with this allocation
 
-    lock_acquire (&t->spt_lock);
-    struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
-    lock_release (&t->spt_lock);
-    if (entry == NULL)
-    {
-      kill(f);
-    }
-
-    // TODO: use a lock when allocating pages so that we don't get races
-    // when two user processes both need a frame at the same time?
-    uint8_t *kpage = allocate_page (PAL_USER);
-
-    if (kpage == NULL)
-    {
-      kill(f);
-    }
-
-    // if we won't be reading any bytes from the file, we shouldn't open it
-    if (entry->page_read_bytes > 0)
-    {
-      // the thread that page faulted might have faulted while it held the file lock,
-      // so we only need to acquire it if we don't already have it
-      bool acquired_lock = false;
-      if (!lock_held_by_current_thread(&file_lock))
+      // allocate a page for the stack
+      uint8_t *kpage = allocate_page (PAL_USER);
+      if (kpage == NULL)
       {
-        acquired_lock = true;
-        lock_acquire(&file_lock);
+        kill(f);
       }
-      struct file* file = filesys_open(entry->name);
-      file_seek (file, entry->pos + entry->ofs);
-      if (file_read (file, kpage, entry->page_read_bytes) != entry->page_read_bytes)
+      // set the page to 0
+      memset (kpage, 0, 4096);
+      //printf("allocated page\n");
+
+      // install our page in the page directory so that it is writable
+      // what virtual address should we be mapping it to?
+      if (!install_page (pg_round_down(fault_addr), kpage, true))
         {
-          if (acquired_lock == true)
-            lock_release(&file_lock);
           palloc_free_page (kpage);
           kill(f);
         }
-      file_close(file);
-    if (acquired_lock == true)
-      lock_release(&file_lock);
-    }
-    memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
+    //printf("installed page\n");
 
-    if (!install_page (entry->addr, kpage, entry->writable))
+    return;
+    } else {
+
+      // printf("other issue\n");
+      // printf("stack pointer: %x\n", f->esp);
+      // printf("fault address: %x\n", fault_addr);
+      // printf("%i\n", (int)f->esp - (int)fault_addr);
+
+      // TODO: we should probably write some functions to handle this stuff and make this function more concise
+      struct hash_elem* e;
+      struct page_table_elem p;
+      struct thread* t = thread_current();
+
+      p.page_no = pg_no (fault_addr);
+      p.t = t;
+
+      lock_acquire (&t->spt_lock);
+      e = hash_find (&t->s_page_table, &p.elem);
+      lock_release (&t->spt_lock);
+      if (e == NULL)
       {
-        palloc_free_page (kpage);
         kill(f);
       }
-    return;
+
+      lock_acquire (&t->spt_lock);
+      struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
+      lock_release (&t->spt_lock);
+      if (entry == NULL)
+      {
+        kill(f);
+      }
+
+      uint8_t *kpage = allocate_page (PAL_USER);
+
+      if (kpage == NULL)
+      {
+        kill(f);
+      }
+
+      // if we won't be reading any bytes from the file, we shouldn't open it
+      if (entry->page_read_bytes > 0)
+      {
+        // the thread that page faulted might have faulted while it held the file lock,
+        // so we only need to acquire it if we don't already have it
+        bool acquired_lock = false;
+        if (!lock_held_by_current_thread(&file_lock))
+        {
+          acquired_lock = true;
+          lock_acquire(&file_lock);
+        }
+        struct file* file = filesys_open(entry->name);
+        file_seek (file, entry->pos + entry->ofs);
+        if (file_read (file, kpage, entry->page_read_bytes) != entry->page_read_bytes)
+          {
+            if (acquired_lock == true)
+              lock_release(&file_lock);
+            palloc_free_page (kpage);
+            kill(f);
+          }
+        file_close(file);
+      if (acquired_lock == true)
+        lock_release(&file_lock);
+      }
+      memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
+
+      if (!install_page (entry->addr, kpage, entry->writable))
+        {
+          palloc_free_page (kpage);
+          kill(f);
+        }
+      return;
+    }
   }
 
   /* To implement virtual memory, delete the rest of the function
@@ -253,6 +297,12 @@ page_fault (struct intr_frame *f)
           not_present ? "not present" : "rights violation",
           write ? "writing" : "reading",
           user ? "user" : "kernel");
+
+  // struct thread* cur = thread_current();
+  // lock_acquire(&cur->element->lock);
+  // cur->element->exit_status = -1;
+  // lock_release(&cur->element->lock);
+
   kill (f);
 
 }

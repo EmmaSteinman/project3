@@ -29,6 +29,7 @@ void sys_seek (int fd, unsigned position);
 unsigned sys_tell (int fd);
 void check_address (void* addr);
 void release_locks (void);
+void check_page (void* addr);
 
 void
 syscall_init (void)
@@ -205,7 +206,6 @@ int sys_read (int fd, const void *buffer, unsigned size)
       }
     }
   }
-
 
   return ret;
 }
@@ -386,19 +386,16 @@ syscall_handler (struct intr_frame *f)
       break;
 
     case SYS_READ:
-      //printf("sys read\n");
       arg1 = f->esp + 4;
       arg2 = f->esp + 8;
       arg3 = f->esp + 12;
       check_address (arg1);
       check_address (arg2);
+      check_page (arg2); // make sure we aren't trying to write to an unwritable page
       check_address (arg3);
       for (i = 0; i < *(int*)arg3; i++)
-      {
-        check_address(*(char**)arg2+i);
-      }
+        check_address (*(char**)arg2+i);
       f->eax = sys_read (*(int*)arg1, *(char**)arg2, *(int*)arg3);
-      //printf("done reading\n");
       break;
 
     case SYS_WRITE:
@@ -443,13 +440,13 @@ void
 check_address (void* addr)
 {
   int i;
+  struct thread* cur = thread_current();
 
   for (i = 0; i < 4; i++)
   {
     // if the initial address is null or a kernel address, we definitely need to exit
     if (addr+i == NULL || is_kernel_vaddr(addr+i))
     {
-      struct thread* cur = thread_current();
       lock_acquire(&cur->element->lock);
       cur->element->exit_status = -1;
       lock_release(&cur->element->lock);
@@ -461,23 +458,43 @@ check_address (void* addr)
     // if the user passed in an unmapped address, we want to exit
     if (kernel_addr == NULL)
     {
-      // first: check to see if the page we want is in the supplemental page table
-      // if it is, then we'll load it when we page fault
       struct hash_elem* e;
       struct page_table_elem p;
       p.page_no = pg_no (addr+i);
-      p.t = thread_current();
-      e = hash_find (&thread_current()->s_page_table, &p.elem);
-      // if it's not, then we can kill the thread
+      lock_acquire(&cur->spt_lock);
+      e = hash_find (&cur->s_page_table, &p.elem);
+      lock_release(&cur->spt_lock);
+      // if the page isn't in the supplemental page table, then we can't load it,
+      // so kill the thread
       if (e == NULL)
       {
-        struct thread* cur = thread_current();
         lock_acquire(&cur->element->lock);
         cur->element->exit_status = -1;
         lock_release(&cur->element->lock);
         thread_exit();
       }
     }
+  }
+}
+
+/* Checks that we are not trying to write to an unwritable page.
+   If we are, kills the thread. */
+void check_page (void* addr)
+{
+  struct thread* cur = thread_current();
+  struct hash_elem* e;
+  struct page_table_elem p;
+  p.page_no = pg_no (*(char**)addr);
+  lock_acquire(&cur->spt_lock);
+  e = hash_find (&cur->s_page_table, &p.elem);
+  struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
+  lock_release(&cur->spt_lock);
+  if (entry != NULL && entry->writable == false)
+  {
+    lock_acquire(&cur->element->lock);
+    cur->element->exit_status = -1;
+    lock_release(&cur->element->lock);
+    thread_exit();
   }
 }
 

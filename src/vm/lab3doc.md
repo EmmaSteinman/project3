@@ -59,7 +59,6 @@ In thread.h:
       size_t page_zero_bytes;
       int ofs;
       int pos;
-      struct list_elem list_elem;
     };
 ```
 
@@ -69,6 +68,9 @@ In the `thread` struct:
 
 - `struct hash s_page_table;`: the supplemental page table.
 - `struct lock spt_lock;`: a lock used with the supplemental page table to prevent race conditions when we access and change entries of the table.
+
+Functions:
+- `void check_page (void* addr)` in syscall.h. Checks that the address of a buffer we are trying to read data into is not in an unwritable page.
 
 #### ALGORITHMS
 

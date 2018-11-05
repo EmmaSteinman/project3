@@ -155,8 +155,9 @@ struct page_table_elem
     size_t page_zero_bytes; // number of bytes to set to zero at the end of the page
     int ofs;                // offset to read from file
     int pos;                // position to read from file
-    struct list_elem list_elem; // allows this element to be put in a list for deletion
   };
+
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
