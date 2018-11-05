@@ -1,5 +1,3 @@
-
-
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -12,6 +10,7 @@
 #include "../filesys/file.h"
 #include "threads/synch.h"
 #include "process.h"
+#include "threads/palloc.h"
 
 static void syscall_handler (struct intr_frame *);
 void sys_exit (int status);
@@ -27,7 +26,7 @@ int sys_write (int fd, const void *buffer, unsigned size);
 bool sys_remove (const char *file);
 void sys_seek (int fd, unsigned position);
 unsigned sys_tell (int fd);
-void check_address (void* addr);
+void check_address (void* addr, struct intr_frame *f);
 void release_locks (void);
 void check_page (void* addr);
 
@@ -319,7 +318,7 @@ syscall_handler (struct intr_frame *f)
   // we need to check the address first
   // the system call number is on the user's stack in the user's virtual address space
   // terminates the process if the address is illegal
-  check_address (f->esp);
+  check_address (f->esp, f);
 
   void* arg1;
   void* arg2;
@@ -337,51 +336,51 @@ syscall_handler (struct intr_frame *f)
 
     case SYS_EXIT:
       arg1 = f->esp + 4;
-      check_address (arg1);
+      check_address (arg1, f);
       sys_exit(*(int*)arg1);
       break;
 
     case SYS_EXEC:
       arg1 = f->esp + 4;
-      check_address (arg1);
+      check_address (arg1, f);
       for (i = 0; i < 14; i++) // file names can only have 14 characters or fewer
-        check_address(*(char**)arg1+i);
+        check_address(*(char**)arg1+i, f);
       f->eax = sys_exec(*(char**)arg1);
       break;
 
     case SYS_WAIT:
       arg1 = f->esp + 4;
-      check_address (arg1);
+      check_address (arg1, f);
       f->eax = sys_wait(*(tid_t*)arg1);
       break;
 
     case SYS_CREATE:
       arg1 = f->esp + 4;
       arg2 = arg1 + 4;
-      check_address (arg1);
+      check_address (arg1, f);
       for (i = 0; i < 14; i++) // file names can only have 14 characters or fewer
-        check_address(*(char**)arg1+i);
-      check_address (arg2);
+        check_address(*(char**)arg1+i, f);
+      check_address (arg2, f);
       f->eax = sys_create(*(char**)arg1, *(unsigned*)arg2);
       break;
 
     case SYS_REMOVE:
       arg1 = f->esp + 4;
-      check_address (arg1);
+      check_address (arg1, f);
       sys_remove(*(int*)arg1);
       break;
 
     case SYS_OPEN:
       arg1 = f->esp + 4;
-      check_address (arg1);
+      check_address (arg1, f);
       for (i = 0; i < 14; i++) // file names can only have 14 characters or fewer
-        check_address(*(char**)arg1+i);
+        check_address(*(char**)arg1+i, f);
       f->eax = sys_open(*(char**)arg1);
       break;
 
     case SYS_FILESIZE:
       arg1 = f->esp + 4;
-      check_address(arg1);
+      check_address(arg1, f);
       f->eax = sys_filesize(*(int*)arg1);
       break;
 
@@ -389,12 +388,12 @@ syscall_handler (struct intr_frame *f)
       arg1 = f->esp + 4;
       arg2 = f->esp + 8;
       arg3 = f->esp + 12;
-      check_address (arg1);
-      check_address (arg2);
+      check_address (arg1, f);
+      check_address (arg2, f);
       check_page (arg2); // make sure we aren't trying to write to an unwritable page
-      check_address (arg3);
+      check_address (arg3, f);
       for (i = 0; i < *(int*)arg3; i++)
-        check_address (*(char**)arg2+i);
+        check_address (*(char**)arg2+i, f);
       f->eax = sys_read (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
@@ -402,42 +401,62 @@ syscall_handler (struct intr_frame *f)
       arg1 = f->esp + 4;
       arg2 = f->esp + 8;
       arg3 = f->esp + 12;
-      check_address (arg1);
-      check_address (arg2);
-      check_address (arg3);
+      check_address (arg1, f);
+      check_address (arg2, f);
+      check_address (arg3, f);
       for (i = 0; i < *(int*)arg3; i++)
-        check_address(*(char**)arg2+i);
+        check_address(*(char**)arg2+i, f);
       f->eax = sys_write (*(int*)arg1, *(char**)arg2, *(int*)arg3);
       break;
 
     case SYS_SEEK:
       arg1 = f->esp + 4;
       arg2 = f->esp + 8;
-      check_address(arg1);
-      check_address(arg2);
+      check_address(arg1, f);
+      check_address(arg2, f);
       sys_seek(*(int*)arg1, *(unsigned*)arg2);
       break;
 
     case SYS_TELL:
       arg1 = f->esp + 4;
-      check_address(arg1);
+      check_address(arg1, f);
       f->eax = sys_tell(*(int*)arg1);
       break;
 
     case SYS_CLOSE:
       arg1 = f->esp + 4;
-      check_address (arg1);
+      check_address (arg1, f);
       sys_close(*(int**)arg1);
       break;
   }
 
 }
 
+/* Adds a mapping from user virtual address UPAGE to kernel
+   virtual address KPAGE to the page table.
+   If WRITABLE is true, the user process may modify the page;
+   otherwise, it is read-only.
+   UPAGE must not already be mapped.
+   KPAGE should probably be a page obtained from the user pool
+   with palloc_get_page().
+   Returns true on success, false if UPAGE is already mapped or
+   if memory allocation fails. */
+static bool
+install_page (void *upage, void *kpage, bool writable)
+{
+  struct thread *t = thread_current ();
+
+  /* Verify that there's not already a page at that virtual
+     address, then map our page there. */
+  return (pagedir_get_page (t->pagedir, upage) == NULL
+          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
 /* New function to check whether an address passed in to a system call
    is valid, i.e. it is not null, it is not a kernel virtual address, and it is
    not unmapped. */
 void
-check_address (void* addr)
+check_address (void* addr, struct intr_frame *f)
 {
   int i;
   struct thread* cur = thread_current();
@@ -468,6 +487,15 @@ check_address (void* addr)
       // so kill the thread
       if (e == NULL)
       {
+        if ((int)f->esp - (int)addr <= 32 && (int)f->esp - (int)addr > -100000 && (int)f->esp - (int)addr != 0)
+        {
+          // TODO: we need to add a stack page if this is true (probably)
+          // this is all happening in the kernel context, so we should be able to add the page here
+          // maybe write a function in a file that is accessible by both syscall.c and exception.c
+          // (maybe in vm directory) and call it both here and in the page fault handler when we add
+          // a stack page
+        }
+
         lock_acquire(&cur->element->lock);
         cur->element->exit_status = -1;
         lock_release(&cur->element->lock);

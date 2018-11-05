@@ -117,6 +117,7 @@ struct thread
 
     struct hash s_page_table;
     struct lock spt_lock;
+    int stack_pages;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

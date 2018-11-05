@@ -192,6 +192,7 @@ thread_create (const char *name, int priority,
   t->element->parent = thread_current();
   t->element->exit_status = 0;
   t->element->thread = t;
+  t->stack_pages = 0;
   //list_init(&t->element->children);
   lock_init (&t->element->lock);
   list_push_back (&thread_list, &e->elem);

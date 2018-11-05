@@ -15,6 +15,9 @@ static long long page_fault_cnt;
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
 
+#define STACK_SIZE 32 // each process is allowed 32 pages of stack (this is arbitrary and we can change it)
+
+
 /* Registers handlers for interrupts that can be caused by user
    programs.
 
@@ -179,22 +182,14 @@ page_fault (struct intr_frame *f)
 
   if (not_present)
   {
-    //printf("not present\n");
     // if the fault address is right below the stack, we need to grow the stack
     if ((int)f->esp - (int)fault_addr <= 32 && (int)f->esp - (int)fault_addr > -100000)
     {
-      // printf("grow stack\n");
-      // printf("%i\n", (int)f->esp - (int)fault_addr);
-      //printf("size of thing to write: %i\n", sizeof((char*)fault_addr));
-      // need to calculate how many additional pages are necessary (why would it be more than 1?)
-      // check that we have not exceeded the absolute maximum number of stack pages, which you have to set maybe?
-      // STACK_SIZE
-      // "consider potential for stack/heap collisions"
-      // printf("stack pointer: %x\n", f->esp);
-      // printf("fault address: %x\n", fault_addr);
-      // printf("fault address rounded up: %x\n", pg_round_up(fault_addr));
-      // printf("fault address rounded down: %x\n", pg_round_down(fault_addr));
-      // TODO: check that we won't exceed the max stack size with this allocation
+      struct thread* t = thread_current();
+      if (t->stack_pages >= STACK_SIZE)
+      {
+        kill(f);
+      }
 
       // allocate a page for the stack
       uint8_t *kpage = allocate_page (PAL_USER);
@@ -204,24 +199,29 @@ page_fault (struct intr_frame *f)
       }
       // set the page to 0
       memset (kpage, 0, 4096);
-      //printf("allocated page\n");
 
       // install our page in the page directory so that it is writable
-      // what virtual address should we be mapping it to?
       if (!install_page (pg_round_down(fault_addr), kpage, true))
         {
           palloc_free_page (kpage);
           kill(f);
         }
-    //printf("installed page\n");
 
-    return;
+      // add this page to the SPT
+      struct page_table_elem* entry = malloc(sizeof(struct page_table_elem));
+      entry->t = t;
+      entry->page_no = pg_no(fault_addr);
+      entry->writable = true;
+
+      lock_acquire (&t->spt_lock);
+      struct hash_elem* h = hash_insert (&t->s_page_table, &entry->elem);
+      lock_release (&t->spt_lock);
+
+      t->stack_pages++;
+
+      return;
+
     } else {
-
-      // printf("other issue\n");
-      // printf("stack pointer: %x\n", f->esp);
-      // printf("fault address: %x\n", fault_addr);
-      // printf("%i\n", (int)f->esp - (int)fault_addr);
 
       // TODO: we should probably write some functions to handle this stuff and make this function more concise
       struct hash_elem* e;
