@@ -114,6 +114,13 @@ We used hash tables to implement our supplemental page table. Each thread has a 
 > `struct` member, global or static variable, `typedef`, or
 > enumeration.  Identify the purpose of each in 25 words or less.
 
+We created a new set of files, page.h and page.c, in the vm directory to contain functions that are related to paging. The following are defined in these files:
+
+- `STACK_SIZE`: a constant that defines the maximum number of pages allowed to be allocated for a single process's stack.
+- `void add_stack_page (struct intr_frame *f, void* addr);`: a function that, given an interrupt frame and an address (either an address being check for use with a system call or an address that caused a page fault), allocates a new page for the current process's stack.
+- `bool install_page (void *upage, void *kpage, bool writable);`: a function copied from process.c that puts a new page in a process's page directory. Was previously not publicly available, so we copied it to page.c so that it can be used in other files.
+
+
 #### ALGORITHMS ####
 
 > B2: When a frame is required but none is free, some frame must be
@@ -126,6 +133,8 @@ We used hash tables to implement our supplemental page table. Each thread has a 
 > B4: Explain your heuristic for deciding whether a page fault for an
 > invalid virtual address should cause the stack to be extended into
 > the page that faulted.
+
+We check three things about an invalid address to see if it should cause stack growth. First, we check that the difference between the stack pointer and the invalid address is less than or equal to 32 bytes. If it is, this implies that the instruction that caused the fault was a `push` or `pusha` instruction, so we should extend the stack. The second thing we check is whether the difference is greater than -100000. When we are *not* trying to put data onto the stack, the difference between the stack pointer and the invalid address tends to be a very small negative number, i.e. the difference is millions of bytes. In some cases where we are trying to put a large amount of data onto the stack, the difference will still be a negative number, but it will be much closer to zero. Based on the provided tests, -100000 seems to be a good number that non-stack accesses will be smaller than but stack accesses will be larger than. Finally, we check that the invalid address and the stack pointer are not the same. This only comes into play when we are checking system call addresses, but we don't want to add a page for the stack if the stack pointer itself is invalid; that means that some other problem has occurred.
 
 #### SYNCHRONIZATION ####
 

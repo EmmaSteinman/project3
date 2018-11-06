@@ -11,6 +11,7 @@
 #include "threads/synch.h"
 #include "process.h"
 #include "threads/palloc.h"
+#include "vm/page.h"
 
 static void syscall_handler (struct intr_frame *);
 void sys_exit (int status);
@@ -432,26 +433,6 @@ syscall_handler (struct intr_frame *f)
 
 }
 
-/* Adds a mapping from user virtual address UPAGE to kernel
-   virtual address KPAGE to the page table.
-   If WRITABLE is true, the user process may modify the page;
-   otherwise, it is read-only.
-   UPAGE must not already be mapped.
-   KPAGE should probably be a page obtained from the user pool
-   with palloc_get_page().
-   Returns true on success, false if UPAGE is already mapped or
-   if memory allocation fails. */
-static bool
-install_page (void *upage, void *kpage, bool writable)
-{
-  struct thread *t = thread_current ();
-
-  /* Verify that there's not already a page at that virtual
-     address, then map our page there. */
-  return (pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable));
-}
-
 /* New function to check whether an address passed in to a system call
    is valid, i.e. it is not null, it is not a kernel virtual address, and it is
    not unmapped. */
@@ -487,15 +468,13 @@ check_address (void* addr, struct intr_frame *f)
       // so kill the thread
       if (e == NULL)
       {
+        // if the address should be invalid but it is close to the stack,
+        // add a new page to the stack for it
         if ((int)f->esp - (int)addr <= 32 && (int)f->esp - (int)addr > -100000 && (int)f->esp - (int)addr != 0)
         {
-          // TODO: we need to add a stack page if this is true (probably)
-          // this is all happening in the kernel context, so we should be able to add the page here
-          // maybe write a function in a file that is accessible by both syscall.c and exception.c
-          // (maybe in vm directory) and call it both here and in the page fault handler when we add
-          // a stack page
+          add_stack_page(f, addr+i);
+          return;
         }
-
         lock_acquire(&cur->element->lock);
         cur->element->exit_status = -1;
         lock_release(&cur->element->lock);
