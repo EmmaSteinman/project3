@@ -435,7 +435,8 @@ syscall_handler (struct intr_frame *f)
 
 /* New function to check whether an address passed in to a system call
    is valid, i.e. it is not null, it is not a kernel virtual address, and it is
-   not unmapped. */
+   not unmapped. As of project 3, only kills the thread if the invalid address is
+   not associated with an entry in the SPT or is not close to the stack. */
 void
 check_address (void* addr, struct intr_frame *f)
 {

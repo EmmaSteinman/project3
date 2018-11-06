@@ -32,7 +32,7 @@ void add_stack_page (struct intr_frame *f, void* addr)
   // set the page to 0
   memset (kpage, 0, 4096);
   // install our page in the page directory so that it is writable
-  if (!install_page (pg_round_down(addr), kpage, true))
+  if (!install_new_page (pg_round_down(addr), kpage, true))
     {
       palloc_free_page (kpage);
       lock_acquire(&cur->element->lock);
@@ -54,6 +54,88 @@ void add_stack_page (struct intr_frame *f, void* addr)
   cur->stack_pages++;
 }
 
+void
+add_spt_page (struct intr_frame *f, void *addr)
+{
+  // TODO: we should probably write some functions to handle this stuff and make this function more concise
+  struct hash_elem* e;
+  struct page_table_elem p;
+  struct thread* cur = thread_current();
+
+  p.page_no = pg_no (addr);
+  p.t = cur;
+
+  lock_acquire (&cur->spt_lock);
+  e = hash_find (&cur->s_page_table, &p.elem);
+  lock_release (&cur->spt_lock);
+  if (e == NULL)
+  {
+    lock_acquire(&cur->element->lock);
+    cur->element->exit_status = -1;
+    lock_release(&cur->element->lock);
+    thread_exit();
+  }
+
+  lock_acquire (&cur->spt_lock);
+  struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
+  lock_release (&cur->spt_lock);
+  if (entry == NULL)
+  {
+    lock_acquire(&cur->element->lock);
+    cur->element->exit_status = -1;
+    lock_release(&cur->element->lock);
+    thread_exit();
+  }
+
+  uint8_t *kpage = allocate_page (PAL_USER);
+
+  if (kpage == NULL)
+  {
+    lock_acquire(&cur->element->lock);
+    cur->element->exit_status = -1;
+    lock_release(&cur->element->lock);
+    thread_exit();
+  }
+
+  // if we won't be reading any bytes from the file, we shouldn't open it
+  if (entry->page_read_bytes > 0)
+  {
+    // the thread that page faulted might have faulted while it held the file lock,
+    // so we only need to acquire it if we don't already have it
+    bool acquired_lock = false;
+    if (!lock_held_by_current_thread(&file_lock))
+    {
+      acquired_lock = true;
+      lock_acquire(&file_lock);
+    }
+    struct file* file = filesys_open(entry->name);
+    file_seek (file, entry->pos + entry->ofs);
+    if (file_read (file, kpage, entry->page_read_bytes) != entry->page_read_bytes)
+      {
+        if (acquired_lock == true)
+          lock_release(&file_lock);
+        palloc_free_page (kpage);
+        lock_acquire(&cur->element->lock);
+        cur->element->exit_status = -1;
+        lock_release(&cur->element->lock);
+        thread_exit();
+      }
+    file_close(file);
+  if (acquired_lock == true)
+    lock_release(&file_lock);
+  }
+  memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
+
+  if (!install_new_page (entry->addr, kpage, entry->writable))
+    {
+      palloc_free_page (kpage);
+      lock_acquire(&cur->element->lock);
+      cur->element->exit_status = -1;
+      lock_release(&cur->element->lock);
+      thread_exit();
+    }
+}
+
 /* Adds a mapping from user virtual address UPAGE to kernel
    virtual address KPAGE to the page table.
    If WRITABLE is true, the user process may modify the page;
@@ -64,7 +146,7 @@ void add_stack_page (struct intr_frame *f, void* addr)
    Returns true on success, false if UPAGE is already mapped or
    if memory allocation fails. */
 bool
-install_page (void *upage, void *kpage, bool writable)
+install_new_page (void *upage, void *kpage, bool writable)
 {
   struct thread *t = thread_current ();
 

@@ -43,7 +43,7 @@ The `frame_entry` struct represents an entry in the frame table. The frame table
 
 - `void * allocate_page (enum palloc_flags flags);`: a function that replaces `palloc_get_page()` when the kernel needs to allocate a page for a user process. Uses `palloc_get_page()` to allocate a page, then uses that page to create a new entry in the frame table.
 
-In thread.h:
+In new file page.h:
 
 ```  
   struct page_table_elem
@@ -63,6 +63,8 @@ In thread.h:
 ```
 
 A `page_table_elem` is an element of the supplemental page table. It contains all of the necessary information about an entry in the page table and is used to determine what data should be loaded and where it should be put when a page fault occurs due to data not being present.
+
+- `void add_spt_page (struct intr_frame *f, void *addr);`: loads a page into memory based on a supplemental page table entry.
 
 In the `thread` struct:
 
@@ -114,7 +116,7 @@ We used hash tables to implement our supplemental page table. Each thread has a 
 > `struct` member, global or static variable, `typedef`, or
 > enumeration.  Identify the purpose of each in 25 words or less.
 
-We created a new set of files, page.h and page.c, in the vm directory to contain functions that are related to paging. The following are defined in these files:
+In page.h:
 
 - `STACK_SIZE`: a constant that defines the maximum number of pages allowed to be allocated for a single process's stack.
 - `void add_stack_page (struct intr_frame *f, void* addr);`: a function that, given an interrupt frame and an address (either an address being check for use with a system call or an address that caused a page fault), allocates a new page for the current process's stack.

@@ -66,7 +66,7 @@ palloc_init (size_t user_page_limit)
              user_pages, "user pool");
 
   // allocate the frame table
-  // TODO: do we need to free this at some point? probably not but maybe
+  // TODO: do we need to free this at some point?
   frame_table = malloc(sizeof(struct frame_entry*) * user_pages);
 
   lock_init (&alloc_lock);
