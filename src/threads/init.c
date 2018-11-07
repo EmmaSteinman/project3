@@ -100,9 +100,6 @@ pintos_init (void)
   malloc_init ();
   paging_init ();
 
-  // hash_init (&s_page_table, hash_func, hash_less, NULL);
-  // lock_init (&spt_lock);
-
   /* Segmentation. */
 #ifdef USERPROG
   tss_init ();
@@ -130,6 +127,7 @@ pintos_init (void)
   locate_block_devices ();
   filesys_init (format_filesys);
 #endif
+  swap_init ();
 
   printf ("Boot complete.\n");
 

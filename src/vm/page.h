@@ -26,6 +26,7 @@ struct page_table_elem
     size_t page_zero_bytes; // number of bytes to set to zero at the end of the page
     int ofs;                // offset to read from file
     int pos;                // position to read from file
+    bool swapped;           // keeps track of whether the page has been swapped out
   };
 
 void add_stack_page (struct intr_frame *f, void *addr);
