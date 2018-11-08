@@ -1,8 +1,10 @@
+
 #include "vm/page.h"
 #include <stdio.h>
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "vm/frame.h"
 
 
 /* Adds a page to the current thread's stack. Checks whether adding a page will
@@ -22,6 +24,7 @@ void add_stack_page (struct intr_frame *f, void* addr)
     thread_exit();
   }
   uint8_t *kpage = allocate_page (PAL_USER);
+
   if (kpage == NULL)
   {
     lock_acquire(&cur->element->lock);
@@ -29,6 +32,7 @@ void add_stack_page (struct intr_frame *f, void* addr)
     lock_release(&cur->element->lock);
     thread_exit();
   }
+
   // set the page to 0
   memset (kpage, 0, 4096);
   // install our page in the page directory so that it is writable
@@ -46,18 +50,27 @@ void add_stack_page (struct intr_frame *f, void* addr)
   entry->t = cur;
   entry->page_no = pg_no(addr);
   entry->writable = true;
+  entry->swapped = false;
+  //entry->kpage = kpage;
 
   lock_acquire (&cur->spt_lock);
   struct hash_elem* h = hash_insert (&cur->s_page_table, &entry->elem);
   lock_release (&cur->spt_lock);
 
   cur->stack_pages++;
+  //pagedir_set_dirty(cur->pagedir, kpage, false);
+
+  // associate kpage's frame table entry with this SPTE
+  uintptr_t phys_ptr = vtop (kpage);
+  uintptr_t pfn = pg_no (phys_ptr);
+  frame_table[pfn-625]->spte = entry;
 }
 
+/* Adds a new page from disk (not swap) based on an SPT entry. */
 void
 add_spt_page (struct intr_frame *f, void *addr)
 {
-  // TODO: we should probably write some functions to handle this stuff and make this function more concise
+  //printf("add spt page\n");
   struct hash_elem* e;
   struct page_table_elem p;
   struct thread* cur = thread_current();
@@ -86,54 +99,69 @@ add_spt_page (struct intr_frame *f, void *addr)
     lock_release(&cur->element->lock);
     thread_exit();
   }
-
-  uint8_t *kpage = allocate_page (PAL_USER);
-
-  if (kpage == NULL)
+  if (entry->swapped == true)
   {
-    lock_acquire(&cur->element->lock);
-    cur->element->exit_status = -1;
-    lock_release(&cur->element->lock);
-    thread_exit();
+    // if this entry was swapped out, we need to swap it back from the swap device
+    swap_in (addr, entry);
   }
-
-  // if we won't be reading any bytes from the file, we shouldn't open it
-  if (entry->page_read_bytes > 0)
+  else
   {
-    // the thread that page faulted might have faulted while it held the file lock,
-    // so we only need to acquire it if we don't already have it
-    bool acquired_lock = false;
-    if (!lock_held_by_current_thread(&file_lock))
+    uint8_t *kpage = allocate_page (PAL_USER);
+
+    if (kpage == NULL)
     {
-      acquired_lock = true;
-      lock_acquire(&file_lock);
+      lock_acquire(&cur->element->lock);
+      cur->element->exit_status = -1;
+      lock_release(&cur->element->lock);
+      thread_exit();
     }
-    struct file* file = filesys_open(entry->name);
-    file_seek (file, entry->pos + entry->ofs);
-    if (file_read (file, kpage, entry->page_read_bytes) != entry->page_read_bytes)
+
+    // associate kpage's frame table entry with this SPTE
+    uintptr_t phys_ptr = vtop (kpage);
+    uintptr_t pfn = pg_no (phys_ptr);
+    frame_table[pfn-625]->spte = entry;
+
+    // if we won't be reading any bytes from the file, we shouldn't open it
+    if (entry->page_read_bytes > 0)
+    {
+      // the thread that page faulted might have faulted while it held the file lock,
+      // so we only need to acquire it if we don't already have it
+      bool acquired_lock = false;
+      if (!lock_held_by_current_thread(&file_lock))
       {
-        if (acquired_lock == true)
-          lock_release(&file_lock);
+        acquired_lock = true;
+        lock_acquire(&file_lock);
+      }
+      struct file* file = filesys_open(entry->name);
+      file_seek (file, entry->pos + entry->ofs);
+      if (file_read (file, kpage, entry->page_read_bytes) != entry->page_read_bytes)
+        {
+          if (acquired_lock == true)
+            lock_release(&file_lock);
+          palloc_free_page (kpage);
+          lock_acquire(&cur->element->lock);
+          cur->element->exit_status = -1;
+          lock_release(&cur->element->lock);
+          thread_exit();
+        }
+      file_close(file);
+    if (acquired_lock == true)
+      lock_release(&file_lock);
+    }
+    memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
+
+    if (!install_new_page (entry->addr, kpage, entry->writable))
+      {
         palloc_free_page (kpage);
         lock_acquire(&cur->element->lock);
         cur->element->exit_status = -1;
         lock_release(&cur->element->lock);
         thread_exit();
       }
-    file_close(file);
-  if (acquired_lock == true)
-    lock_release(&file_lock);
-  }
-  memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
 
-  if (!install_new_page (entry->addr, kpage, entry->writable))
-    {
-      palloc_free_page (kpage);
-      lock_acquire(&cur->element->lock);
-      cur->element->exit_status = -1;
-      lock_release(&cur->element->lock);
-      thread_exit();
-    }
+    if (!entry->writable)
+      pagedir_set_dirty(cur->pagedir, kpage, false);
+  }
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

@@ -1,4 +1,3 @@
-
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -9,6 +8,7 @@
 #include "threads/palloc.h"
 #include "lib/kernel/list.h"
 #include "vm/page.h"
+#include "vm/swap.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -169,7 +169,8 @@ page_fault (struct intr_frame *f)
       add_stack_page (f, fault_addr);
       return;
     }
-    // otherwise, we pull the page from the supplemental page table
+    // otherwise, we add a page from the supplemental page table
+    // this includes situations where we need to swap in
     else {
       add_spt_page (f, fault_addr);
       return;

@@ -12,6 +12,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "vm/swap.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -193,12 +194,15 @@ thread_create (const char *name, int priority,
   t->element->exit_status = 0;
   t->element->thread = t;
   t->stack_pages = 0;
-  //list_init(&t->element->children);
+
   lock_init (&t->element->lock);
   list_push_back (&thread_list, &e->elem);
 
   hash_init (&t->s_page_table, hash_func, hash_less, NULL);
   lock_init (&t->spt_lock);
+
+  //t->swap_table = malloc(sizeof(struct swap_table_elem)*num_swap_slots); // allocate an array for the swap table
+  list_init (&t->swap_table);
 
   tid = t->tid = allocate_tid ();
   t->element->tid = tid;
@@ -300,11 +304,11 @@ thread_tid (void)
 void
 thread_exit (void)
 {
+  //printf("THREAD EXIT\n");
   ASSERT (!intr_context ());
 #ifdef USERPROG
   process_exit ();
 #endif
-
   struct thread* cur = thread_current();
 
   /* Remove thread from all threads list, set our status to dying,
@@ -312,6 +316,7 @@ thread_exit (void)
      when it calls thread_schedule_tail(). */
   intr_disable ();
 
+  // clear open files
   while (!list_empty (&cur->fd_list))
     {
       struct list_elem *e = list_pop_front (&cur->fd_list);
@@ -322,7 +327,18 @@ thread_exit (void)
       free(entry);
     }
 
-  // destroy the thread's SPT
+  // clear swap table
+  while (!list_empty (&cur->swap_table))
+    {
+      struct list_elem *e = list_pop_front (&cur->swap_table);
+      struct swap_table_elem* entry = list_entry (e, struct swap_table_elem, elem);
+      // set all of the swap slots that this thread used to available
+      // so that other processes may use them
+      bitmap_set (swap_slots, entry->swap_location, 0);
+      free(entry);
+    }
+
+  // destroy the supplemental page table
   // the pages associated with this thread's process are freed when we call
   // process_exit() above, so there is no need to free them here
   lock_acquire (&cur->spt_lock);

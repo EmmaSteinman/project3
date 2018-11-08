@@ -119,6 +119,8 @@ struct thread
     struct lock spt_lock;
     int stack_pages;
 
+    struct list swap_table;
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */

@@ -27,6 +27,7 @@ struct page_table_elem
     int ofs;                // offset to read from file
     int pos;                // position to read from file
     bool swapped;           // keeps track of whether the page has been swapped out
+    struct swap_table_elem* swap_elem;
   };
 
 void add_stack_page (struct intr_frame *f, void *addr);

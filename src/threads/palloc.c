@@ -1,3 +1,4 @@
+
 #include "threads/palloc.h"
 #include <bitmap.h>
 #include <debug.h>
@@ -7,10 +8,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <random.h>
 #include "threads/loader.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
+#include "vm/frame.h"
 
 /* Page allocator.  Hands out memory in page-size (or
    page-multiple) chunks.  See malloc.h for an allocator that
@@ -34,12 +37,8 @@ struct pool
     uint8_t *base;                      /* Base of pool. */
   };
 
-struct lock alloc_lock;
-
 /* Two pools: one for kernel data, one for user pages. */
 static struct pool kernel_pool, user_pool;
-
-struct frame_entry** frame_table; // NEW
 
 static void init_pool (struct pool *, void *base, size_t page_cnt,
                        const char *name);
@@ -67,7 +66,8 @@ palloc_init (size_t user_page_limit)
 
   // allocate the frame table
   // TODO: do we need to free this at some point?
-  frame_table = malloc(sizeof(struct frame_entry*) * user_pages);
+  user_pgs = user_pages;
+  frame_table = malloc(sizeof(struct frame_entry) * user_pages);
 
   lock_init (&alloc_lock);
 }
@@ -107,7 +107,6 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
       if (flags & PAL_ASSERT)
         PANIC ("palloc_get: out of pages");
     }
-
   return pages;
 }
 
@@ -124,38 +123,11 @@ palloc_get_page (enum palloc_flags flags)
   return palloc_get_multiple (flags, 1);
 }
 
-// NEW
-/* Replaces calls to palloc_get_page(). Uses palloc_get_page() to
-   allocate a page, and adds an entry to the frame table about
-   that page. */
-void *
-allocate_page (enum palloc_flags flags)
-{
-  lock_acquire (&alloc_lock);
-  // set to PAL_USER and PAL_ASSERT so that the kernel panics if we are out
-  // of pages; change this in the future when we implement swapping
-  void* va_ptr = palloc_get_page(flags | PAL_ASSERT);
-
-  // this is a VIRTUAL ADDRESS, so to get the frame number, we need
-  // to translate it
-  uintptr_t phys_ptr = vtop (va_ptr);
-  uintptr_t pfn = pg_no (phys_ptr);
-
-  // initialize the new frame table entry
-  struct frame_entry* entry = malloc(sizeof(struct frame_entry));
-  entry->t = thread_current();
-
-  // add the entry to the frame table at the index of the PFN
-  frame_table[pfn] = entry;
-  lock_release (&alloc_lock);
-
-  return va_ptr;
-}
-
 /* Frees the PAGE_CNT pages starting at PAGES. */
 void
 palloc_free_multiple (void *pages, size_t page_cnt)
 {
+  //printf("palloc free multiple\n");
   struct pool *pool;
   size_t page_idx;
 
@@ -188,7 +160,7 @@ palloc_free_page (void *page)
   // get its PFN so that we can free its frame table entry
   uintptr_t phys_ptr = vtop (page);
   uintptr_t pfn = pg_no (phys_ptr);
-  free (frame_table[pfn]);
+  free (frame_table[pfn-625]);
 
   palloc_free_multiple (page, 1);
 }

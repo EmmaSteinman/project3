@@ -1,4 +1,5 @@
 
+
 #include "userprog/process.h"
 #include <debug.h>
 #include <inttypes.h>
@@ -538,6 +539,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       entry->name = name;
       entry->writable = writable;
       entry->pos = pos;
+      entry->swapped = false;
 
       lock_acquire (&t->spt_lock);
       struct hash_elem* h = hash_insert (&t->s_page_table, &entry->elem);
@@ -549,7 +551,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
     }
-
 
   return true;
 }
