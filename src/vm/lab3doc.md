@@ -32,11 +32,13 @@
 > `struct` member, `global` or `static` variable, `typedef`, or
 > enumeration.  Document the purpose of each in 25 words or less.
 
-In palloc.h:
+In frame.h:
 
     struct frame_entry
       {
         struct thread* t;
+        void* va_ptr;
+        struct page_table_elem* spte;
       };
 
 The `frame_entry` struct represents an entry in the frame table. The frame table holds pointers to `frame_entry` structs, which contain the information associated with that entry in the frame table.
@@ -79,13 +81,11 @@ Functions:
 > A2: In a few paragraphs, describe your code for accessing the data
 > stored in the SPT about a given page.
 
-**write more on this later**
-- entries are stored in a hash table
-- there is a supplemental page table for each thread
-- we hash by page number + thread struct pointer; this reduces collisions
-- when we need to access the SPT, we can just create a `page_table_elem` with the page number and thread pointer that we want, and this will provide all of the information that was previously saved about this entry and will let us load it
+Each thread has its own supplemental page table, which is a hash table. Each entry in the SPT is associated with a page, and is hashed into the table using its VPN. We made the SPT per-process so that we could hash entries based on their VPNs without running into issues with collisions; multiple distinct processes may have pages with the same VPN since they have distinct virtual address spaces, but each process will only have one page with each VPN. Elements in our SPT are `page_table_elem`s, which contain `hash_elem`s to go in the hash table as well as other necessary data like whether the page is writable, the name of the file that it is associated with, etc.
 
-*need to add more here when swapping and stuff is implemented*
+In most cases, we access data in the SPT by creating a temporary `page_table_elem` with the VPN of the page whose entry we want to find. We then use the `hash_find` function, which returns the `hash_elem` that hashes to the same spot as our temporary element, and use the `hash_entry` macro to convert this into a full `page_table_elem` that contains all of the data stored in that SPT entry.
+
+In some cases, we access SPT entries through our frame table. When we allocate a new frame from an SPT entry, we save a pointer to the SPT entry as a field in the frame table entry for the newly-allocate frame. This allows us to access the SPT entry associated with a frame, even when we don't necessarily know the user virtual address of the page associated with that frame. This is useful when swapping, because when we swap a page out we need to update data in its SPT entry, but we don't have direct access to the user virtual address of that page and thus can't simply hash to get the entry we want.
 
 > A3: How does your code coordinate accessed and dirty bits between
 > kernel and user virtual addresses that alias a single frame, or other aliasing that might occur through sharing?
@@ -119,8 +119,29 @@ We used hash tables to implement our supplemental page table. Each thread has a 
 In page.h:
 
 - `STACK_SIZE`: a constant that defines the maximum number of pages allowed to be allocated for a single process's stack.
-- `void add_stack_page (struct intr_frame *f, void* addr);`: a function that, given an interrupt frame and an address (either an address being check for use with a system call or an address that caused a page fault), allocates a new page for the current process's stack.
-- `bool install_page (void *upage, void *kpage, bool writable);`: a function copied from process.c that puts a new page in a process's page directory. Was previously not publicly available, so we copied it to page.c so that it can be used in other files.
+- `void add_stack_page (struct intr_frame *f, void* addr);`: a function that, given an interrupt frame and an address (either an address being checked for use with a system call or an address that caused a page fault), allocates a new page for the current process's stack.
+- `void add_spt_page (struct intr_frame *f, void *addr);`: a function that, given an interrupt frame and a user virtual address, allocates a new page based on data in the supplemental page table.
+- `bool install_new_page (void *upage, void *kpage, bool writable);`: a function copied from process.c that puts a new page in a process's page directory. Was previously not publicly available, so we copied it to page.c so that it can be used in other files.
+
+In swap.h:
+
+- `struct block* swap_block;`: a pointer to the block device that contains the swap slots.
+- `int num_swap_slots;`: the number of swap slots on the `swap_block` devices. Calculated based on the size of `swap_block`, the size of a sector, and the size of a page.
+- `struct bitmap* swap_slots;`: a bitmap that represents the free and used swap slots. Each bit is associated with one swap slot, which is the same size as 1 page (8 sectors) and is 0 when the slot is free and 1 when it is being used by some process.
+
+
+- `void swap_init (void);`: a function that finds `swap_block`, calculates `num_swap_slots`, and creates `swap_slots`.
+- `void* swap_out (void);`: called when `palloc_get_page()` fails due to a lack of free pages. Finds a frame to evict, saves it to swap space if necessary, and frees the frame so that another process can use it.
+- `void swap_in (void* addr, struct page_table_elem* spte);`: called when a process tries to access a page that has been swapped out. Uses the address that the process tried to access and the SPT entry associated with that address to figure out where the data we want is in swap space and to load it back into memory.
+
+
+    struct swap_table_elem
+      {
+        struct list_elem elem;
+        int swap_location;
+      };
+
+A `swap_table_elem` is an element in the swap table. It contains a `list_elem` so that it can be added to the list of swapped pages owned by a particular thread. It also contains an integer that indicates which index of the swap table bitmap is associated with it.
 
 
 #### ALGORITHMS ####
@@ -131,6 +152,8 @@ In page.h:
 > B3: When a process P obtains a frame that was previously used by a
 > process Q, how do you adjust the page table (and any other data
 > structures) to reflect the frame Q no longer has?
+
+Whenever we evict a frame, we free its frame table entry (indicating an open space in memory) and we use `pagedir_clear_page()` on the page that was previously in that space. This removes the page from Q's page directory, so now if Q tries to access it, it will page fault. This doesn't necessarily clear the data in the frame, but it does remove restrictions (like read-only permissions) on the page so that P can put a new page in the frame.
 
 > B4: Explain your heuristic for deciding whether a page fault for an
 > invalid virtual address should cause the stack to be extended into

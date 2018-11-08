@@ -1,4 +1,3 @@
-
 #include "vm/swap.h"
 #include <random.h>
 #include <bitmap.h>
@@ -53,19 +52,18 @@ void* swap_out ()
     {
       block_write (swap_block, open_slot * 8 + i, va_ptr + i * 512);
     }
-    
+
     // create a swap table entry for this to save that it was swapped
     struct swap_table_elem* s = malloc(sizeof(struct swap_table_elem));
     s->swap_location = open_slot;
-    s->spte = frame_ptr->spte;
     frame_ptr->spte->swap_elem = s;
-    s->va_ptr = va_ptr;
     list_push_back(&frame_ptr->t->swap_table, &s->elem);
     frame_ptr->spte->swapped = true;
   }
   // otherwise, we can just clear the page
 
   // free the resources in this page and the frame pointer so that we can put something else here
+  // TODO: are there other resources that we may need to free?
   pagedir_clear_page (frame_ptr->t->pagedir, frame_ptr->spte->addr);
   free (frame_ptr);
   return va_ptr;
@@ -78,6 +76,7 @@ void swap_in (void* addr, struct page_table_elem* spte)
   int swap_loc = spte->swap_elem->swap_location;
 
   // get a page (possibly swapping something else out)
+  // this also creates a new entry in the frame table for this frame
   uint8_t* kpage = allocate_page (PAL_USER);
 
   // read the data in the swap slot into the new page
@@ -105,4 +104,6 @@ void swap_in (void* addr, struct page_table_elem* spte)
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
   frame_table[pfn-625]->spte = spte;
+
+  // TODO: free swap table entry corresponding to this?
 }

@@ -17,9 +17,7 @@
 struct swap_table_elem
   {
     struct list_elem elem;
-    void* va_ptr;
     int swap_location;
-    struct page_table_elem* spte;
   };
 
 struct block* swap_block;
@@ -27,8 +25,8 @@ int num_swap_slots;
 
 struct bitmap* swap_slots;
 
-void swap_init ();
-void* swap_out ();
+void swap_init (void);
+void* swap_out (void);
 void swap_in (void* addr, struct page_table_elem* spte);
 
 #endif // SWAP_H

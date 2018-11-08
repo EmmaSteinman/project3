@@ -70,7 +70,6 @@ void add_stack_page (struct intr_frame *f, void* addr)
 void
 add_spt_page (struct intr_frame *f, void *addr)
 {
-  //printf("add spt page\n");
   struct hash_elem* e;
   struct page_table_elem p;
   struct thread* cur = thread_current();
