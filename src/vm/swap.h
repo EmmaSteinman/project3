@@ -27,6 +27,6 @@ struct bitmap* swap_slots;
 
 void swap_init (void);
 void* swap_out (void);
-void swap_in (void* addr, struct page_table_elem* spte);
+void swap_in (uint8_t* addr, struct page_table_elem* spte);
 
 #endif // SWAP_H

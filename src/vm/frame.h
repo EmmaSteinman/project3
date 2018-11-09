@@ -12,7 +12,7 @@ struct frame_entry
     struct page_table_elem* spte;
   };
 
-struct frame_entry** frame_table;
+struct frame_entry** frame_table; // TODO: add a lock around this?
 int user_pgs;
 
 struct lock alloc_lock;

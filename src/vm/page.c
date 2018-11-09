@@ -98,23 +98,24 @@ add_spt_page (struct intr_frame *f, void *addr)
     lock_release(&cur->element->lock);
     thread_exit();
   }
+
+  uint8_t *kpage = allocate_page (PAL_USER);
+
+  if (kpage == NULL)
+  {
+    lock_acquire(&cur->element->lock);
+    cur->element->exit_status = -1;
+    lock_release(&cur->element->lock);
+    thread_exit();
+  }
+
   if (entry->swapped == true)
   {
     // if this entry was swapped out, we need to swap it back from the swap device
-    swap_in (addr, entry);
+    swap_in (kpage, entry);
   }
   else
   {
-    uint8_t *kpage = allocate_page (PAL_USER);
-
-    if (kpage == NULL)
-    {
-      lock_acquire(&cur->element->lock);
-      cur->element->exit_status = -1;
-      lock_release(&cur->element->lock);
-      thread_exit();
-    }
-
     // associate kpage's frame table entry with this SPTE
     uintptr_t phys_ptr = vtop (kpage);
     uintptr_t pfn = pg_no (phys_ptr);
@@ -125,6 +126,9 @@ add_spt_page (struct intr_frame *f, void *addr)
     {
       // the thread that page faulted might have faulted while it held the file lock,
       // so we only need to acquire it if we don't already have it
+      // TODO: this issue shows up a couple other places (faulting while we hold a resource that
+      // we need to handle the fault). we need to come up with some way to deal with it that is probably
+      // not this way.
       bool acquired_lock = false;
       if (!lock_held_by_current_thread(&file_lock))
       {
@@ -149,18 +153,17 @@ add_spt_page (struct intr_frame *f, void *addr)
     }
     memset (kpage + entry->page_read_bytes, 0, entry->page_zero_bytes);
 
-    if (!install_new_page (entry->addr, kpage, entry->writable))
-      {
-        palloc_free_page (kpage);
-        lock_acquire(&cur->element->lock);
-        cur->element->exit_status = -1;
-        lock_release(&cur->element->lock);
-        thread_exit();
-      }
-
     if (!entry->writable)
       pagedir_set_dirty(cur->pagedir, kpage, false);
   }
+  if (!install_new_page (entry->addr, kpage, entry->writable))
+    {
+      palloc_free_page (kpage);
+      lock_acquire(&cur->element->lock);
+      cur->element->exit_status = -1;
+      lock_release(&cur->element->lock);
+      thread_exit();
+    }
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
