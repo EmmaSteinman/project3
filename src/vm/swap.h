@@ -23,6 +23,8 @@ struct swap_table_elem
 struct block* swap_block;
 int num_swap_slots;
 
+struct lock swap_lock;
+
 struct bitmap* swap_slots;
 
 void swap_init (void);

@@ -33,6 +33,10 @@ void add_stack_page (struct intr_frame *f, void* addr)
     thread_exit();
   }
 
+  uintptr_t phys_ptr = vtop (kpage);
+  uintptr_t pfn = pg_no (phys_ptr);
+  frame_table[pfn-625]->pinned = true;
+
   // set the page to 0
   memset (kpage, 0, 4096);
   // install our page in the page directory so that it is writable
@@ -51,19 +55,17 @@ void add_stack_page (struct intr_frame *f, void* addr)
   entry->page_no = pg_no(addr);
   entry->writable = true;
   entry->swapped = false;
-  //entry->kpage = kpage;
 
   lock_acquire (&cur->spt_lock);
   struct hash_elem* h = hash_insert (&cur->s_page_table, &entry->elem);
   lock_release (&cur->spt_lock);
 
   cur->stack_pages++;
-  //pagedir_set_dirty(cur->pagedir, kpage, false);
 
   // associate kpage's frame table entry with this SPTE
-  uintptr_t phys_ptr = vtop (kpage);
-  uintptr_t pfn = pg_no (phys_ptr);
   frame_table[pfn-625]->spte = entry;
+  entry->frame_ptr = frame_table[pfn-625];
+  frame_table[pfn-625]->pinned = false;
 }
 
 /* Adds a new page from disk (not swap) based on an SPT entry. */
@@ -109,6 +111,10 @@ add_spt_page (struct intr_frame *f, void *addr)
     thread_exit();
   }
 
+  uintptr_t phys_ptr = vtop (kpage);
+  uintptr_t pfn = pg_no (phys_ptr);
+  frame_table[pfn-625]->pinned = true;
+
   if (entry->swapped == true)
   {
     // if this entry was swapped out, we need to swap it back from the swap device
@@ -117,9 +123,10 @@ add_spt_page (struct intr_frame *f, void *addr)
   else
   {
     // associate kpage's frame table entry with this SPTE
-    uintptr_t phys_ptr = vtop (kpage);
-    uintptr_t pfn = pg_no (phys_ptr);
+    // uintptr_t phys_ptr = vtop (kpage);
+    // uintptr_t pfn = pg_no (phys_ptr);
     frame_table[pfn-625]->spte = entry;
+    entry->frame_ptr = frame_table[pfn-625];
 
     // we should only open the file if we actually need to read bytes from it
     if (entry->page_read_bytes > 0)
@@ -164,6 +171,7 @@ add_spt_page (struct intr_frame *f, void *addr)
       lock_release(&cur->element->lock);
       thread_exit();
     }
+  frame_table[pfn-625]->pinned = false;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

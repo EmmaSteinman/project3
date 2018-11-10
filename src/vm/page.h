@@ -1,3 +1,4 @@
+
 #ifndef PAGE_H
 #define PAGE_H
 
@@ -28,6 +29,7 @@ struct page_table_elem
     int pos;                // position to read from file
     bool swapped;           // keeps track of whether the page has been swapped out
     struct swap_table_elem* swap_elem;
+    struct frame_entry* frame_ptr;
   };
 
 void add_stack_page (struct intr_frame *f, void *addr);

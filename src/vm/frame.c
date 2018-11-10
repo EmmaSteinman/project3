@@ -34,6 +34,7 @@ allocate_page (enum palloc_flags flags)
   struct frame_entry* entry = malloc(sizeof(struct frame_entry));
   entry->t = thread_current();
   entry->va_ptr = va_ptr;
+  entry->pinned = false;
 
   // add the entry to the frame table at the index of the PFN
   frame_table[pfn-625] = entry; // normalize so that indexing starts at 0
@@ -41,3 +42,15 @@ allocate_page (enum palloc_flags flags)
 
   return va_ptr;
 }
+
+// int select_frame (void)
+// {
+//   int frame = 0;
+//   struct frame_entry* frame_ptr = NULL;
+//   while (frame_ptr == NULL)
+//   {
+//     frame = (random_ulong() % user_pgs) + 1;
+//     frame_ptr = frame_table[frame];
+//   }
+//   return frame_ptr;
+// }

@@ -440,7 +440,6 @@ syscall_handler (struct intr_frame *f)
 void
 check_address (void* addr, struct intr_frame *f)
 {
-  //printf("check address\n");
   int i;
   struct thread* cur = thread_current();
 

@@ -22,10 +22,12 @@ void swap_init (void)
   swap_block = block_get_role(BLOCK_SWAP); // get a pointer to the location of the swap disk
   num_swap_slots = (block_size(swap_block)*BLOCK_SECTOR_SIZE) / PGSIZE; // get the number of swap slots on the swap disk
   swap_slots = bitmap_create(num_swap_slots);
+  lock_init (&swap_lock);
 }
 
 void* swap_out ()
 {
+  lock_acquire (&swap_lock);
   // this section of code randomly selects a frame to remove
   // it is NOT very good but should work for now
   // might be sometimes causing us to lose the name of the file???
@@ -37,6 +39,9 @@ void* swap_out ()
   {
     frame = (random_ulong() % user_pgs) + 1;
     frame_ptr = frame_table[frame];
+    // if the frame is pinned, we can't evict it
+    if (frame_ptr != NULL && frame_ptr->pinned == true)
+      frame_ptr = NULL;
   }
   void* va_ptr = frame_ptr->va_ptr;
 
@@ -66,11 +71,13 @@ void* swap_out ()
   // TODO: are there other resources that we may need to free?
   pagedir_clear_page (frame_ptr->t->pagedir, frame_ptr->spte->addr);
   free (frame_ptr);
+  lock_release (&swap_lock);
   return va_ptr;
 }
 
 void swap_in (uint8_t* kpage, struct page_table_elem* spte)
 {
+  lock_acquire (&swap_lock);
   struct thread* cur = thread_current();
 
   int swap_loc = spte->swap_elem->swap_location;
@@ -94,6 +101,7 @@ void swap_in (uint8_t* kpage, struct page_table_elem* spte)
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
   frame_table[pfn-625]->spte = spte;
+  lock_release (&swap_lock);
 
-  // TODO: free swap table entry corresponding to this?
+  // TODO: FREE THE SWAP TABLE ENTRY CORRESPONDING TO THIS
 }

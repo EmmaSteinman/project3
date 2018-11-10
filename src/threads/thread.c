@@ -1,3 +1,4 @@
+
 #include "threads/thread.h"
 #include <debug.h>
 #include <stddef.h>
@@ -337,6 +338,8 @@ thread_exit (void)
       bitmap_set (swap_slots, entry->swap_location, 0);
       free(entry);
     }
+
+  // TODO: free the frame table entries associated with this thread?
 
   // destroy the supplemental page table
   // the pages associated with this thread's process are freed when we call

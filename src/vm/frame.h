@@ -10,6 +10,7 @@ struct frame_entry
     struct thread* t;
     void* va_ptr; // the kernel VA associated with this frame
     struct page_table_elem* spte;
+    bool pinned;
   };
 
 struct frame_entry** frame_table; // TODO: add a lock around this?
@@ -18,5 +19,6 @@ int user_pgs;
 struct lock alloc_lock;
 
 void * allocate_page (enum palloc_flags flags);
+//int select_frame (void);
 
 #endif
