@@ -16,9 +16,6 @@ static long long page_fault_cnt;
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
 
-//#define STACK_SIZE 32 // each process is allowed 32 pages of stack (this is arbitrary and we can change it)
-
-
 /* Registers handlers for interrupts that can be caused by user
    programs.
 

@@ -17,7 +17,13 @@ allocate_page (enum palloc_flags flags)
   // if this returns null, then we need to swap out a page
   // this has to be done here otherwise we will fail in vtop
   if (va_ptr == NULL)
+  {
+    // if we need to acquire another page while swapping this one out (like for the stack),
+    // we can't be holding onto the alloc_lock while we do that
+    lock_release (&alloc_lock);
     va_ptr = swap_out();
+    lock_acquire (&alloc_lock);
+  }
 
   // this is a VIRTUAL ADDRESS, so to get the frame number, we need
   // to translate it

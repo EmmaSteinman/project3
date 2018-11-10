@@ -121,7 +121,7 @@ add_spt_page (struct intr_frame *f, void *addr)
     uintptr_t pfn = pg_no (phys_ptr);
     frame_table[pfn-625]->spte = entry;
 
-    // if we won't be reading any bytes from the file, we shouldn't open it
+    // we should only open the file if we actually need to read bytes from it
     if (entry->page_read_bytes > 0)
     {
       // the thread that page faulted might have faulted while it held the file lock,

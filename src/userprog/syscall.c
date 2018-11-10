@@ -482,6 +482,12 @@ check_address (void* addr, struct intr_frame *f)
         lock_release(&cur->element->lock);
         thread_exit();
       }
+      // if the address is unmapped but DOES correspond to an entry in the SPT,
+      // load that entry now to prevent a page fault later
+      else
+      {
+        add_spt_page(f, addr+i);
+      }
     }
   }
 }

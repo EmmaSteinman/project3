@@ -1,4 +1,5 @@
 
+
 /* This file is derived from source code for the Nachos
    instructional operating system.  The Nachos copyright notice
    is reproduced in full below. */
@@ -238,7 +239,6 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 
-  // TODO: do we need mutex here?
   list_remove(&lock->elem);
 }
 

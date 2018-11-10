@@ -90,16 +90,6 @@ void swap_in (uint8_t* kpage, struct page_table_elem* spte)
   // so that we can put something else in it
   bitmap_set (swap_slots, swap_loc, 0);
 
-  // // install this page in the page directory
-  // if (!install_new_page (pg_round_down(addr), kpage, spte->writable))
-  //   {
-  //     palloc_free_page (kpage);
-  //     lock_acquire(&cur->element->lock);
-  //     cur->element->exit_status = -1;
-  //     lock_release(&cur->element->lock);
-  //     thread_exit();
-  //   }
-
   // set the entry in the frame table to correspond to this supplemental page table entry
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
