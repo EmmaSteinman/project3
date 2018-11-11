@@ -173,6 +173,8 @@ We check three things about an invalid address to see if it should cause stack g
 > the page during the eviction process?  How do you avoid a race
 > between P evicting Q's frame and Q faulting the page back in?
 
+After selecting a frame to evict but before starting the actual swapping-out process, we remove the selected frame from the owning process's page directory using `pagedir_clear_page()`. This unmaps the frame's section of memory in the process's address space, so if the process tries to read or write to it, it will page fault. There is a lock, `swap_lock()` around the code in our swapping functions `swap_in()` and `swap_out()`, that ensures that a frame cannot be swapped out while any other frame is being swapped back in (or vice versa).
+
 > B7: Suppose a page fault in process P causes a page to be read from
 > the file system or swap.  How do you ensure that a second process Q
 > cannot interfere by e.g. attempting to evict the frame while it is

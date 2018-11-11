@@ -12,6 +12,7 @@
 #include "process.h"
 #include "threads/palloc.h"
 #include "vm/page.h"
+#include "vm/swap.h"
 
 static void syscall_handler (struct intr_frame *);
 void sys_exit (int status);
@@ -96,9 +97,11 @@ int sys_open (const char* file)
   int fd = -1;
   struct file *file_ptr = NULL;
 
+  lock_acquire(&swap_lock);
   lock_acquire(&file_lock);
   file_ptr = filesys_open(file);
   lock_release(&file_lock);
+  lock_release(&swap_lock);
   if (file_ptr != NULL) {
     /* add file to this thread's fd_list */
     struct thread *t = thread_current();
@@ -160,7 +163,10 @@ sys_filesize (int fd)
       file = entry->file;
   }
   // call file_length on the pointer to the file and return that value
-  return file_length(file);
+  lock_acquire (&file_lock);
+  int ret = file_length(file);
+  lock_release (&file_lock);
+  return ret;
 }
 
 
@@ -195,9 +201,11 @@ int sys_read (int fd, const void *buffer, unsigned size)
         file_ptr = fd_read->file;
         if (file_ptr)
         {
+          lock_acquire(&swap_lock);
           lock_acquire(&file_lock);
           ret = file_read(file_ptr, buffer, size);
           lock_release(&file_lock);
+          lock_release(&swap_lock);
         }
         else
           ret = -1;
@@ -241,9 +249,11 @@ sys_write (int fd, const void *buffer, unsigned size)
         file_ptr = fd_write->file;
         if (file_ptr)
         {
+          lock_acquire(&swap_lock);
           lock_acquire(&file_lock);
           ret = file_write(file_ptr, buffer, size);
           lock_release(&file_lock);
+          lock_release(&swap_lock);
         }
         else
           ret = -1;

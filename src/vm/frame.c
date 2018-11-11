@@ -4,7 +4,11 @@
 #include "threads/vaddr.h"
 #include "threads/thread.h"
 
-// NEW
+void frame_init ()
+{
+  lock_init (&frame_lock);
+}
+
 /* Replaces calls to palloc_get_page(). Uses palloc_get_page() to
    allocate a page, and adds an entry to the frame table about
    that page. */
@@ -37,7 +41,9 @@ allocate_page (enum palloc_flags flags)
   entry->pinned = false;
 
   // add the entry to the frame table at the index of the PFN
+  lock_acquire (&frame_lock);
   frame_table[pfn-625] = entry; // normalize so that indexing starts at 0
+  lock_release (&frame_lock);
   lock_release (&alloc_lock);
 
   return va_ptr;

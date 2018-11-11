@@ -31,7 +31,9 @@ void swap_init (void)
 void* swap_out ()
 {
   lock_acquire (&swap_lock);
+  lock_acquire (&frame_lock);
   frame_table[slots_frame+1]->pinned = true; // make sure that the page with the swap table is pinned and can't be evicted
+  lock_release (&frame_lock);
   // this section of code randomly selects a frame to remove
   // it is NOT very good but should work for now
   // might be sometimes causing us to lose the name of the file???
@@ -42,7 +44,9 @@ void* swap_out ()
   while (frame_ptr == NULL)
   {
     frame = (random_ulong() % user_pgs);
+    lock_acquire (&frame_lock);
     frame_ptr = frame_table[frame];
+    lock_release (&frame_lock);
     // if the frame is pinned, we can't evict it
     // frames with lower frame pages also seem to cause problems so exclude them as well
     if (frame_ptr != NULL && (frame_ptr->pinned == true || frame < 10))
@@ -70,14 +74,18 @@ void* swap_out ()
     // create a swap table entry for this to save that it was swapped
     struct swap_table_elem* s = malloc(sizeof(struct swap_table_elem));
     s->swap_location = open_slot;
+    lock_acquire (&frame_lock);
     frame_ptr->spte->swap_elem = s;
     list_push_back(&frame_ptr->t->swap_table, &s->elem);
     frame_ptr->spte->swapped = true;
+    lock_release (&frame_lock);
   }
 
   // free the resources in this page and the frame pointer so that we can put something else here
   // TODO: are there other resources that we may need to free?
+  lock_acquire(&frame_lock);
   free (frame_ptr);
+  lock_release(&frame_lock);
   lock_release (&swap_lock);
   return va_ptr;
 }
@@ -107,7 +115,9 @@ void swap_in (uint8_t* kpage, struct page_table_elem* spte)
   // set the entry in the frame table to correspond to this supplemental page table entry
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
+  lock_acquire (&frame_lock);
   frame_table[pfn-625]->spte = spte;
+  lock_release (&frame_lock);
 
   // remove this swap element
   list_remove (&spte->swap_elem->elem);

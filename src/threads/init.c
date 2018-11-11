@@ -128,6 +128,7 @@ pintos_init (void)
   filesys_init (format_filesys);
 #endif
   swap_init ();
+  frame_init ();
 
   printf ("Boot complete.\n");
 

@@ -35,7 +35,9 @@ void add_stack_page (struct intr_frame *f, void* addr)
 
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
+  lock_acquire (&frame_lock);
   frame_table[pfn-625]->pinned = true;
+  lock_release (&frame_lock);
 
   // set the page to 0
   memset (kpage, 0, 4096);
@@ -63,9 +65,11 @@ void add_stack_page (struct intr_frame *f, void* addr)
   cur->stack_pages++;
 
   // associate kpage's frame table entry with this SPTE
+  lock_acquire (&frame_lock);
   frame_table[pfn-625]->spte = entry;
   entry->frame_ptr = frame_table[pfn-625];
   frame_table[pfn-625]->pinned = false;
+  lock_release (&frame_lock);
 }
 
 /* Adds a new page from disk (not swap) based on an SPT entry. */
@@ -115,7 +119,9 @@ add_spt_page (struct intr_frame *f, void *addr)
 
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
+  lock_acquire (&frame_lock);
   frame_table[pfn-625]->pinned = true;
+  lock_release (&frame_lock);
 
   if (entry->swapped == true)
   {
@@ -127,8 +133,10 @@ add_spt_page (struct intr_frame *f, void *addr)
     // associate kpage's frame table entry with this SPTE
     // uintptr_t phys_ptr = vtop (kpage);
     // uintptr_t pfn = pg_no (phys_ptr);
+    lock_acquire (&frame_lock);
     frame_table[pfn-625]->spte = entry;
     entry->frame_ptr = frame_table[pfn-625];
+    lock_release(&frame_lock);
 
     // we should only open the file if we actually need to read bytes from it
     if (entry->page_read_bytes > 0)
@@ -173,7 +181,9 @@ add_spt_page (struct intr_frame *f, void *addr)
       lock_release(&cur->element->lock);
       thread_exit();
     }
+  lock_acquire (&frame_lock);
   frame_table[pfn-625]->pinned = false;
+  lock_release (&frame_lock);
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

@@ -158,6 +158,8 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  //printf("fault addr: %x\n", fault_addr);
+
   if (not_present)
   {
     // if the fault address is close to the stack, we need to grow the stack
