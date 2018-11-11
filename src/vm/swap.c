@@ -22,12 +22,16 @@ void swap_init (void)
   swap_block = block_get_role(BLOCK_SWAP); // get a pointer to the location of the swap disk
   num_swap_slots = (block_size(swap_block)*BLOCK_SECTOR_SIZE) / PGSIZE; // get the number of swap slots on the swap disk
   swap_slots = bitmap_create(num_swap_slots);
+  uintptr_t phys_ptr = vtop (swap_slots);
+  uintptr_t pfn = pg_no (phys_ptr);
+  slots_frame = pfn;
   lock_init (&swap_lock);
 }
 
 void* swap_out ()
 {
   lock_acquire (&swap_lock);
+  frame_table[slots_frame+1]->pinned = true; // make sure that the page with the swap table is pinned and can't be evicted
   // this section of code randomly selects a frame to remove
   // it is NOT very good but should work for now
   // might be sometimes causing us to lose the name of the file???
@@ -37,16 +41,21 @@ void* swap_out ()
   struct frame_entry* frame_ptr = NULL;
   while (frame_ptr == NULL)
   {
-    frame = (random_ulong() % user_pgs) + 1;
+    frame = (random_ulong() % user_pgs);
     frame_ptr = frame_table[frame];
     // if the frame is pinned, we can't evict it
-    if (frame_ptr != NULL && frame_ptr->pinned == true)
+    // frames with lower frame pages also seem to cause problems so exclude them as well
+    if (frame_ptr != NULL && (frame_ptr->pinned == true || frame < 10))
       frame_ptr = NULL;
   }
   void* va_ptr = frame_ptr->va_ptr;
 
+  // clear the page here to prevent the owning process from editing this frame anymore
+  bool dirty = pagedir_is_dirty(frame_ptr->t->pagedir, frame_ptr->va_ptr);
+  pagedir_clear_page (frame_ptr->t->pagedir, frame_ptr->spte->addr);
+
   // if the frame is dirty we have to write it to swap
-  if (pagedir_is_dirty(frame_ptr->t->pagedir, frame_ptr->va_ptr) && frame_ptr->spte->writable)
+  if (dirty && frame_ptr->spte->writable)
   {
     // find an empty swap slot (8 blocks, 1 bit in the bitmap)
     size_t open_slot = bitmap_scan_and_flip (swap_slots, 0, 1, 0);
@@ -65,11 +74,9 @@ void* swap_out ()
     list_push_back(&frame_ptr->t->swap_table, &s->elem);
     frame_ptr->spte->swapped = true;
   }
-  // otherwise, we can just clear the page
 
   // free the resources in this page and the frame pointer so that we can put something else here
   // TODO: are there other resources that we may need to free?
-  pagedir_clear_page (frame_ptr->t->pagedir, frame_ptr->spte->addr);
   free (frame_ptr);
   lock_release (&swap_lock);
   return va_ptr;
@@ -82,10 +89,6 @@ void swap_in (uint8_t* kpage, struct page_table_elem* spte)
 
   int swap_loc = spte->swap_elem->swap_location;
 
-  // get a page (possibly swapping something else out)
-  // this also creates a new entry in the frame table for this frame
-  //uint8_t* kpage = allocate_page (PAL_USER);
-
   // read the data in the swap slot into the new page
   int i;
   for (i = 0; i < 8; i++)
@@ -97,11 +100,18 @@ void swap_in (uint8_t* kpage, struct page_table_elem* spte)
   // so that we can put something else in it
   bitmap_set (swap_slots, swap_loc, 0);
 
+  // now that this page has been swapped back in, set the swapped variable
+  // with this SPTE back to false
+  spte->swapped = false;
+
   // set the entry in the frame table to correspond to this supplemental page table entry
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
   frame_table[pfn-625]->spte = spte;
-  lock_release (&swap_lock);
 
-  // TODO: FREE THE SWAP TABLE ENTRY CORRESPONDING TO THIS
+  // remove this swap element
+  list_remove (&spte->swap_elem->elem);
+  free (spte->swap_elem);
+
+  lock_release (&swap_lock);
 }

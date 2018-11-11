@@ -26,6 +26,7 @@ int num_swap_slots;
 struct lock swap_lock;
 
 struct bitmap* swap_slots;
+int slots_frame;
 
 void swap_init (void);
 void* swap_out (void);

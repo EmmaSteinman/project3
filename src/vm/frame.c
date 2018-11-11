@@ -42,15 +42,3 @@ allocate_page (enum palloc_flags flags)
 
   return va_ptr;
 }
-
-// int select_frame (void)
-// {
-//   int frame = 0;
-//   struct frame_entry* frame_ptr = NULL;
-//   while (frame_ptr == NULL)
-//   {
-//     frame = (random_ulong() % user_pgs) + 1;
-//     frame_ptr = frame_table[frame];
-//   }
-//   return frame_ptr;
-// }

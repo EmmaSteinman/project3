@@ -84,6 +84,8 @@ add_spt_page (struct intr_frame *f, void *addr)
   lock_release (&cur->spt_lock);
   if (e == NULL)
   {
+    // printf("KILLING THREAD\n");
+    // printf("addr: %x\n", addr);
     lock_acquire(&cur->element->lock);
     cur->element->exit_status = -1;
     lock_release(&cur->element->lock);
