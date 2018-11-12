@@ -384,8 +384,11 @@ syscall_handler (struct intr_frame *f)
     case SYS_OPEN:
       arg1 = f->esp + 4;
       check_address (arg1, f);
-      for (i = 0; i < 14; i++) // file names can only have 14 characters or fewer
-        check_address(*(char**)arg1+i, f);
+      if (strlen(*(char**)arg1) > 0)
+        for (i = 0; i < strlen(*(char**)arg1)-1; i++) // file names can only have 14 characters or fewer
+          check_address(*(char**)arg1+i, f);
+      else
+        f->eax = -1;
       f->eax = sys_open(*(char**)arg1);
       break;
 

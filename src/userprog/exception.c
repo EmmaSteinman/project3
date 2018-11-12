@@ -171,15 +171,6 @@ page_fault (struct intr_frame *f)
     // otherwise, we add a page from the supplemental page table
     // this includes situations where we need to swap in
     else {
-      //printf("fault instruction: %x\n", f->eip);
-      if (is_kernel_vaddr(f->eip))
-      {
-        // printf("fault instruction: %x\n", f->eip);
-        // printf("fault eax: %x\n", f->eax);
-        // printf("KERNEL ADDRESS\n");
-      }
-      // else
-      //   printf("USER ADDERSS\n");
       add_spt_page (f, fault_addr);
       return;
     }

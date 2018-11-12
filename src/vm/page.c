@@ -52,20 +52,22 @@ void add_stack_page (struct intr_frame *f, void* addr)
     }
 
   // add this page to the SPT
+  lock_acquire (&frame_lock);
+  lock_acquire (&cur->spt_lock);
   struct page_table_elem* entry = malloc(sizeof(struct page_table_elem));
   entry->t = cur;
   entry->page_no = pg_no(addr);
   entry->writable = true;
   entry->swapped = false;
 
-  lock_acquire (&cur->spt_lock);
+
   struct hash_elem* h = hash_insert (&cur->s_page_table, &entry->elem);
   lock_release (&cur->spt_lock);
 
   cur->stack_pages++;
 
   // associate kpage's frame table entry with this SPTE
-  lock_acquire (&frame_lock);
+
   frame_table[pfn-625]->spte = entry;
   entry->frame_ptr = frame_table[pfn-625];
   frame_table[pfn-625]->pinned = false;
@@ -132,11 +134,11 @@ add_spt_page (struct intr_frame *f, void *addr)
   else
   {
     // associate kpage's frame table entry with this SPTE
-    // uintptr_t phys_ptr = vtop (kpage);
-    // uintptr_t pfn = pg_no (phys_ptr);
     lock_acquire (&frame_lock);
+    lock_acquire (&cur->spt_lock);
     frame_table[pfn-625]->spte = entry;
     entry->frame_ptr = frame_table[pfn-625];
+    lock_release (&cur->spt_lock);
     lock_release(&frame_lock);
 
     // we should only open the file if we actually need to read bytes from it
@@ -153,7 +155,9 @@ add_spt_page (struct intr_frame *f, void *addr)
         acquired_lock = true;
         lock_acquire(&file_lock);
       }
+      lock_acquire(&cur->spt_lock);
       struct file* file = filesys_open(entry->name);
+      lock_release(&cur->spt_lock);
       file_seek (file, entry->pos + entry->ofs);
       if (file_read (file, kpage, entry->page_read_bytes) != entry->page_read_bytes)
         {
