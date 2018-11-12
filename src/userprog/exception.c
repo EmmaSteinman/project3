@@ -171,10 +171,22 @@ page_fault (struct intr_frame *f)
     // otherwise, we add a page from the supplemental page table
     // this includes situations where we need to swap in
     else {
+      //printf("fault instruction: %x\n", f->eip);
+      if (is_kernel_vaddr(f->eip))
+      {
+        // printf("fault instruction: %x\n", f->eip);
+        // printf("fault eax: %x\n", f->eax);
+        // printf("KERNEL ADDRESS\n");
+      }
+      // else
+      //   printf("USER ADDERSS\n");
       add_spt_page (f, fault_addr);
       return;
     }
   }
+  // printf("exception\n");
+  // printf("fault address: %x\n", fault_addr);
+  // printf("fault inst: %x\n", f->eip);
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to

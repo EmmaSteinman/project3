@@ -20,6 +20,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "vm/frame.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -565,7 +566,7 @@ setup_stack (void **esp, char *file_name)
   bool success = false;
 
   //kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  kpage = allocate_page (PAL_USER | PAL_ZERO);
+  kpage = allocate_page (PAL_ZERO);
   if (kpage != NULL)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);

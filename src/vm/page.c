@@ -23,7 +23,7 @@ void add_stack_page (struct intr_frame *f, void* addr)
     lock_release(&cur->element->lock);
     thread_exit();
   }
-  uint8_t *kpage = allocate_page (PAL_USER);
+  uint8_t *kpage = allocate_page (PAL_ZERO);
 
   if (kpage == NULL)
   {
@@ -90,6 +90,7 @@ add_spt_page (struct intr_frame *f, void *addr)
   {
     // printf("KILLING THREAD\n");
     // printf("addr: %x\n", addr);
+    // printf("instruction ptr: %x\n", f->eip);
     lock_acquire(&cur->element->lock);
     cur->element->exit_status = -1;
     lock_release(&cur->element->lock);
@@ -107,7 +108,7 @@ add_spt_page (struct intr_frame *f, void *addr)
     thread_exit();
   }
 
-  uint8_t *kpage = allocate_page (PAL_USER);
+  uint8_t *kpage = allocate_page (PAL_ZERO);
 
   if (kpage == NULL)
   {

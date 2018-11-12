@@ -13,11 +13,11 @@ void frame_init ()
    allocate a page, and adds an entry to the frame table about
    that page. */
 void *
-allocate_page (enum palloc_flags flags)
+allocate_page (enum palloc_flags flags) // TODO: we don't need flags?
 {
   lock_acquire (&alloc_lock);
   void* va_ptr;
-  va_ptr = palloc_get_page(flags);
+  va_ptr = palloc_get_page(PAL_USER | flags);
   // if this returns null, then we need to swap out a page
   // this has to be done here otherwise we will fail in vtop
   if (va_ptr == NULL)
@@ -39,6 +39,7 @@ allocate_page (enum palloc_flags flags)
   entry->t = thread_current();
   entry->va_ptr = va_ptr;
   entry->pinned = false;
+  entry->spte = NULL;
 
   // add the entry to the frame table at the index of the PFN
   lock_acquire (&frame_lock);
