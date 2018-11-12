@@ -70,6 +70,7 @@ void* swap_out ()
     size_t open_slot = bitmap_scan_and_flip (swap_slots, 0, 1, 0);
 
     // now use that to write the page to disk (we need to write 8 sectors because there are 8 sectors in 1 page)
+    // TODO: place file lock around this so it can't swap out while we are reading in from file?
     int i;
     for (i = 0; i < 8; i++)
     {

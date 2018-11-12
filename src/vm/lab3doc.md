@@ -39,41 +39,47 @@ In frame.h:
         struct thread* t;
         void* va_ptr;
         struct page_table_elem* spte;
+        bool pinned;
       };
 
 The `frame_entry` struct represents an entry in the frame table. The frame table holds pointers to `frame_entry` structs, which contain the information associated with that entry in the frame table.
 
+- `struct frame_entry** frame_table;`: the frame table itself; an array of `frame_entry`'s.
+- `int user_pgs;`: a variable that holds the number of pages designated for user data.
 - `void * allocate_page (enum palloc_flags flags);`: a function that replaces `palloc_get_page()` when the kernel needs to allocate a page for a user process. Uses `palloc_get_page()` to allocate a page, then uses that page to create a new entry in the frame table.
+- `struct alloc_lock;`: a lock used around page allocation to prevent races.
+- `struct frame_lock;`: a lock used around frame table accesses to prevent races.
 
-In new file page.h:
+In page.h:
 
 ```  
   struct page_table_elem
     {
       struct hash_elem elem;
-      void* addr;
-      int page_no;
-      struct thread* t;
-      struct file* file;
-      char** name;
-      bool writable;
+      void* addr;             
+      int page_no;          
+      struct thread* t;       
+      struct file* file;      
+      char** name;          
+      bool writable;         
       size_t page_read_bytes;
       size_t page_zero_bytes;
-      int ofs;
-      int pos;
+      int ofs;                
+      int pos;                
+      bool swapped;           
+      struct swap_table_elem* swap_elem;
+      struct frame_entry* frame_ptr;
     };
 ```
 
-A `page_table_elem` is an element of the supplemental page table. It contains all of the necessary information about an entry in the page table and is used to determine what data should be loaded and where it should be put when a page fault occurs due to data not being present.
-
-- `void add_spt_page (struct intr_frame *f, void *addr);`: loads a page into memory based on a supplemental page table entry.
+A `page_table_elem` is an element of the supplemental page table. It contains all of the necessary information about an entry in the page table and is used to determine what data should be loaded and where it should be put when a page fault occurs due to data not being present. It also contains pointers that associate the SPT entry with corresponding frame table and swap table entries, if they exist.
 
 In the `thread` struct:
 
 - `struct hash s_page_table;`: the supplemental page table.
 - `struct lock spt_lock;`: a lock used with the supplemental page table to prevent race conditions when we access and change entries of the table.
 
-Functions:
+In syscall.c:
 - `void check_page (void* addr)` in syscall.h. Checks that the address of a buffer we are trying to read data into is not in an unwritable page.
 
 #### ALGORITHMS
@@ -128,11 +134,12 @@ In swap.h:
 - `struct block* swap_block;`: a pointer to the block device that contains the swap slots.
 - `int num_swap_slots;`: the number of swap slots on the `swap_block` devices. Calculated based on the size of `swap_block`, the size of a sector, and the size of a page.
 - `struct bitmap* swap_slots;`: a bitmap that represents the free and used swap slots. Each bit is associated with one swap slot, which is the same size as 1 page (8 sectors) and is 0 when the slot is free and 1 when it is being used by some process.
+- `struct lock swap_lock;`: a lock used to prevent races around swapping.
 
 
 - `void swap_init (void);`: a function that finds `swap_block`, calculates `num_swap_slots`, and creates `swap_slots`.
 - `void* swap_out (void);`: called when `palloc_get_page()` fails due to a lack of free pages. Finds a frame to evict, saves it to swap space if necessary, and frees the frame so that another process can use it.
-- `void swap_in (void* addr, struct page_table_elem* spte);`: called when a process tries to access a page that has been swapped out. Uses the address that the process tried to access and the SPT entry associated with that address to figure out where the data we want is in swap space and to load it back into memory.
+- `void swap_in (uint8_t* addr, struct page_table_elem* spte);`: called when a process tries to access a page that has been swapped out. Uses the address that the process tried to access and the SPT entry associated with that address to figure out where the data we want is in swap space and to load it back into memory.
 
 
     struct swap_table_elem
@@ -168,6 +175,22 @@ We check three things about an invalid address to see if it should cause stack g
 > textbook for an explanation of the necessary conditions for
 > deadlock.)
 
+We use a number of locks for VM synchronization. The following is a list of these locks with the specific situations in which we use them.
+- `alloc_lock`: used only in our function `allocate_page()`. This lock ensures that two threads cannot use `allocate_page()` concurrently and prevents races when obtaining a user page for a user process.
+- `frame_lock`: used anytime we access or change information in the frame table. This includes creating and removing frame table entries, as well as changing their `pinned` state or associated `spte`. Since the frame table is a global structure that multiple threads may be accessing concurrently, we need to use this lock to prevent race conditions.
+- `spt_lock`: each thread has its own supplemental page table and thus has its own `spt_lock` to ensure that other threads cannot access or change anything about a given thread's SPT while it is accessing it itself.
+- `swap_lock`: used around the code in `swap_in()` and `swap_out()`. Ensures that a frame cannot be swapped out by one thread concurrently with another thread swapping a frame in, or vice versa.
+- `file_lock`: a lock originally created in project 2. Ensures that two processes cannot access the file system at the same time.
+
+We try to prevent deadlock by acquiring locks in a specific order when we need to hold more than one at a time. This order is as follows. The locks are never all held by one thread at the same time, but if we, for example, need `alloc_lock` and `frame_lock` at the same time, we will acquire `alloc_lock` first and `frame_lock` second, and release `frame_lock` first and `alloc_lock` second.
+1. `alloc_lock`
+2. `swap_lock`
+3. `file_lock`
+4. `frame_lock`
+5. `spt_lock` for the current thread
+
+Although enforcing an ordering like this can be tricky in larger and more complicated code bases, it is the simplest way to avoid deadlock. Since we use these locks in a relatively small part of the overall Pintos codebase and they are only used in a couple of functions written for this project, we believe that our approach will prevent deadlock.
+
 > B6: A page fault in process P can cause another process Q's frame
 > to be evicted.  How do you ensure that Q cannot access or modify
 > the page during the eviction process?  How do you avoid a race
@@ -179,6 +202,8 @@ After selecting a frame to evict but before starting the actual swapping-out pro
 > the file system or swap.  How do you ensure that a second process Q
 > cannot interfere by e.g. attempting to evict the frame while it is
 > still being read in?
+
+Our `swap_lock` mentioned in the previous questions handles this as well. Since it prevents the code in `swap_in()` and `swap_out()` from being run concurrently, it ensures that a frame that is being read in by process P cannot be evicted by process Q until P finishes. We also use `swap_lock()` around the code in `add_spt_page()` that reads from the file system to ensure that a page from a file being read in due to a page fault cannot be evicted while it is being read in.
 
 > B8: Explain how you handle access to paged-out pages that occur
 > during system calls.  Do you use page faults to bring in pages (as
@@ -194,6 +219,8 @@ After selecting a frame to evict but before starting the actual swapping-out pro
 > possibility for deadlock but allows for high parallelism.  Explain
 > where your design falls along this continuum and why you chose to
 > design it this way.
+
+We decided to use several locks (5, if you count each thread's individual `spt_lock` as one) rather than just one to allow for higher parallelism. Although this is more complicated than just using one lock, it allows our code to run multiple threads more efficiently. The number of locks we used was low enough that it was not too difficult to maintain a total ordering for lock acquisition and thus avoid deadlock bugs.
 
 ### C. MEMORY MAPPED FILES
 

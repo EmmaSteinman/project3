@@ -1,10 +1,12 @@
 
+
 #include "vm/page.h"
 #include <stdio.h>
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
+#include "vm/swap.h"
 
 
 /* Adds a page to the current thread's stack. Checks whether adding a page will
@@ -146,21 +148,20 @@ add_spt_page (struct intr_frame *f, void *addr)
     {
       // the thread that page faulted might have faulted while it held the file lock,
       // so we only need to acquire it if we don't already have it
-      // TODO: this issue shows up a couple other places (faulting while we hold a resource that
-      // we need to handle the fault). we need to come up with some way to deal with it that is probably
-      // not this way.
       bool acquired_lock = false;
       if (!lock_held_by_current_thread(&file_lock))
       {
         acquired_lock = true;
         lock_acquire(&file_lock);
       }
+      lock_acquire(&swap_lock);
       lock_acquire(&cur->spt_lock);
       struct file* file = filesys_open(entry->name);
       lock_release(&cur->spt_lock);
       file_seek (file, entry->pos + entry->ofs);
       if (file_read (file, kpage, entry->page_read_bytes) != entry->page_read_bytes)
         {
+          lock_release(&swap_lock);
           if (acquired_lock == true)
             lock_release(&file_lock);
           palloc_free_page (kpage);
@@ -170,6 +171,7 @@ add_spt_page (struct intr_frame *f, void *addr)
           thread_exit();
         }
       file_close(file);
+    lock_release (&swap_lock);
     if (acquired_lock == true)
       lock_release(&file_lock);
     }
