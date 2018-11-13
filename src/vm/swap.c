@@ -39,7 +39,6 @@ void* swap_out ()
   // might be sometimes causing us to lose the name of the file???
   // there is still more work to do with restricting which frames can be evicted
   // and what we can and cannot edit during an eviction
-  //printf("flag 1\n");
   int frame = 0;
   struct frame_entry* frame_ptr = NULL;
   while (frame_ptr == NULL)
@@ -48,11 +47,9 @@ void* swap_out ()
     lock_acquire (&frame_lock);
     frame_ptr = frame_table[frame];
     lock_release (&frame_lock);
-    // if the frame is pinned, we can't evict it
-    // frames with lower frame pages also seem to cause problems so exclude them as well
-    // also, if the frame does not have an associated SPTE for some reason, we should not evict it
-    // TODO: why does that situation arise? it seems like it shouldn't
-    if (frame_ptr != NULL && (frame_ptr->spte == NULL || frame_ptr->pinned == true || frame < 10))
+    // if the frame is pinned or doesn't have an associated SPTE, we can't evict it
+    //if (frame_ptr != NULL && (frame_ptr->spte == NULL || frame_ptr->pinned == true || frame < 10))
+    if (frame_ptr != NULL && (frame_ptr->spte == NULL || frame_ptr->pinned == true))
       frame_ptr = NULL;
   }
   void* va_ptr = frame_ptr->va_ptr;
@@ -70,7 +67,7 @@ void* swap_out ()
     size_t open_slot = bitmap_scan_and_flip (swap_slots, 0, 1, 0);
 
     // now use that to write the page to disk (we need to write 8 sectors because there are 8 sectors in 1 page)
-    // TODO: place file lock around this so it can't swap out while we are reading in from file?
+
     int i;
     for (i = 0; i < 8; i++)
     {

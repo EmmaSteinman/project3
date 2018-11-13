@@ -14,6 +14,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "vm/swap.h"
+#include "vm/frame.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -305,11 +306,14 @@ thread_tid (void)
 void
 thread_exit (void)
 {
-  //printf("THREAD EXIT\n");
   ASSERT (!intr_context ());
+
+  // TODO: free the frame table entries associated with this thread?
+
 #ifdef USERPROG
   process_exit ();
 #endif
+
   struct thread* cur = thread_current();
 
   /* Remove thread from all threads list, set our status to dying,
@@ -339,7 +343,7 @@ thread_exit (void)
       free(entry);
     }
 
-  // TODO: free the frame table entries associated with this thread?
+
 
   // destroy the supplemental page table
   // the pages associated with this thread's process are freed when we call

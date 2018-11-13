@@ -163,7 +163,7 @@ page_fault (struct intr_frame *f)
   if (not_present)
   {
     // if the fault address is close to the stack, we need to grow the stack
-    if ((int)f->esp - (int)fault_addr <= 32 && (int)f->esp - (int)fault_addr > -100000 && (int)f->esp - (int)fault_addr != 0)
+    if ((int)f->esp - (int)fault_addr <= 32 && (int)f->esp - (int)fault_addr > -131072 && (int)f->esp - (int)fault_addr != 0)
     {
       add_stack_page (f, fault_addr);
       return;
