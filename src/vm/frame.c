@@ -17,6 +17,7 @@ allocate_page (enum palloc_flags flags) // TODO: we don't need flags?
 {
   lock_acquire (&alloc_lock);
   void* va_ptr;
+  
   va_ptr = palloc_get_page(PAL_USER | flags);
   // if this returns null, then we need to swap out a page
   // this has to be done here otherwise we will fail in vtop

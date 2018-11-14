@@ -211,6 +211,8 @@ Our `swap_lock` mentioned in the previous questions handles this as well. Since 
 > into physical memory, or do you use some other design?  How do you
 > gracefully handle attempted accesses to invalid virtual addresses?
 
+If one of the addresses passed to a system call is invalid, our `check_address()` function (originally written for project 2) checks whether the address corresponds to a supplemental page table address or if it is close to the stack. If it is, then we use our `add_spt_page()` or `add_stack_page()` functions to page it in before a page fault could occur in the system call. We also have a mechanism for "locking" frames into physical memory in `add_spt_page()` and `add_stack_page()`. Frame table entries have a boolean field called `pinned` that is usually set to `false`, but becomes true when a page is being loaded into the frame by `add_spt_page()` or `add_stack_page()`. When we are selecting a page for eviction, we do not consider pages that are pinned. So, we will never have an invalid access to a frame during the page-in process in `add_spt_page()` or `add_stack_page()`, so regardless of whether we are preemptively adding a page in `check_address()` or loading it due to an exception, the address of the page will never become invalid while we are loading it.
+
 #### RATIONALE ####
 
 > B9: A single lock for the whole VM system would make

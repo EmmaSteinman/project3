@@ -16,24 +16,20 @@
 #include "userprog/pagedir.h"
 #include "threads/palloc.h"
 #include <random.h>
+#include <string.h>
 
 void swap_init (void)
 {
   swap_block = block_get_role(BLOCK_SWAP); // get a pointer to the location of the swap disk
   num_swap_slots = (block_size(swap_block)*BLOCK_SECTOR_SIZE) / PGSIZE; // get the number of swap slots on the swap disk
   swap_slots = bitmap_create(num_swap_slots);
-  uintptr_t phys_ptr = vtop (swap_slots);
-  uintptr_t pfn = pg_no (phys_ptr);
-  slots_frame = pfn;
   lock_init (&swap_lock);
 }
 
 void* swap_out ()
 {
   lock_acquire (&swap_lock);
-  lock_acquire (&frame_lock);
-  frame_table[slots_frame+1]->pinned = true; // make sure that the page with the swap table is pinned and can't be evicted
-  lock_release (&frame_lock);
+
   // this section of code randomly selects a frame to remove
   // it is NOT very good but should work for now
   // might be sometimes causing us to lose the name of the file???
@@ -57,8 +53,7 @@ void* swap_out ()
   // clear the page here to prevent the owning process from editing this frame anymore
   bool dirty = pagedir_is_dirty(frame_ptr->t->pagedir, frame_ptr->va_ptr);
 
-  pagedir_clear_page (frame_ptr->t->pagedir, frame_ptr->spte->addr); // RIGHT HERE! SPTE IS BAD!
-
+  pagedir_clear_page (frame_ptr->t->pagedir, frame_ptr->spte->addr);
 
   // if the frame is dirty we have to write it to swap
   if (dirty && frame_ptr->spte->writable)
@@ -84,8 +79,12 @@ void* swap_out ()
     lock_release (&frame_lock);
   }
 
+  // set the contents of the page to 0 so that the next thread that
+  // obtains this page doesn't accidentally read old data that belonged
+  // to the previous thread that held the page
+  memset (va_ptr, 0, PGSIZE);
+
   // free the resources in this page and the frame pointer so that we can put something else here
-  // TODO: are there other resources that we may need to free?
   lock_acquire(&frame_lock);
   free (frame_ptr);
   lock_release(&frame_lock);

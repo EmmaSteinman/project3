@@ -18,6 +18,7 @@
 void add_stack_page (struct intr_frame *f, void* addr)
 {
   struct thread* cur = thread_current();
+  // if we already have the max number of stack pages, kill the thread
   if (cur->stack_pages >= STACK_SIZE)
   {
     lock_acquire(&cur->element->lock);
@@ -25,6 +26,8 @@ void add_stack_page (struct intr_frame *f, void* addr)
     lock_release(&cur->element->lock);
     thread_exit();
   }
+
+  // allocate the new page for the stack
   uint8_t *kpage = allocate_page (PAL_ZERO);
 
   if (kpage == NULL)
@@ -35,6 +38,7 @@ void add_stack_page (struct intr_frame *f, void* addr)
     thread_exit();
   }
 
+  // find the frame table entry associated with the page
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
   lock_acquire (&frame_lock);
@@ -61,15 +65,12 @@ void add_stack_page (struct intr_frame *f, void* addr)
   entry->page_no = pg_no(addr);
   entry->writable = true;
   entry->swapped = false;
-
-
   struct hash_elem* h = hash_insert (&cur->s_page_table, &entry->elem);
   lock_release (&cur->spt_lock);
 
   cur->stack_pages++;
 
   // associate kpage's frame table entry with this SPTE
-
   frame_table[pfn-625]->spte = entry;
   entry->frame_ptr = frame_table[pfn-625];
   frame_table[pfn-625]->pinned = false;
@@ -87,20 +88,17 @@ add_spt_page (struct intr_frame *f, void *addr)
   p.page_no = pg_no (addr);
   p.t = cur;
 
+  // find the associated SPTE
   lock_acquire (&cur->spt_lock);
   e = hash_find (&cur->s_page_table, &p.elem);
   lock_release (&cur->spt_lock);
   if (e == NULL)
   {
-    // printf("KILLING THREAD\n");
-    // printf("addr: %x\n", addr);
-    // printf("instruction ptr: %x\n", f->eip);
     lock_acquire(&cur->element->lock);
     cur->element->exit_status = -1;
     lock_release(&cur->element->lock);
     thread_exit();
   }
-
   lock_acquire (&cur->spt_lock);
   struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
   lock_release (&cur->spt_lock);
@@ -122,6 +120,8 @@ add_spt_page (struct intr_frame *f, void *addr)
     thread_exit();
   }
 
+  // pin the frame that we are going to put the new page into
+  // so that it can't be evicted until we are done with it
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
   lock_acquire (&frame_lock);
@@ -180,6 +180,7 @@ add_spt_page (struct intr_frame *f, void *addr)
     if (!entry->writable)
       pagedir_set_dirty(cur->pagedir, kpage, false);
   }
+  // install the page into the current thread's page directory
   if (!install_new_page (entry->addr, kpage, entry->writable))
     {
       palloc_free_page (kpage);
