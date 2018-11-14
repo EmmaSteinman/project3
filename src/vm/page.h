@@ -30,6 +30,7 @@ struct page_table_elem
     bool swapped;           // keeps track of whether the page has been swapped out
     struct swap_table_elem* swap_elem;
     struct frame_entry* frame_ptr;
+    //int reference;         //for clock algorithm
   };
 
 void add_stack_page (struct intr_frame *f, void *addr);

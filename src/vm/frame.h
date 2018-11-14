@@ -11,6 +11,7 @@ struct frame_entry
     void* va_ptr; // the kernel VA associated with this frame
     struct page_table_elem* spte;
     bool pinned;
+    int reference;
   };
 
 struct frame_entry** frame_table;
