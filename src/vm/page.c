@@ -1,10 +1,12 @@
 
+
 #include "vm/page.h"
 #include <stdio.h>
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
+#include "vm/swap.h"
 
 
 /* Adds a page to the current thread's stack. Checks whether adding a page will
@@ -16,6 +18,7 @@
 void add_stack_page (struct intr_frame *f, void* addr)
 {
   struct thread* cur = thread_current();
+  // if we already have the max number of stack pages, kill the thread
   if (cur->stack_pages >= STACK_SIZE)
   {
     lock_acquire(&cur->element->lock);
@@ -23,6 +26,8 @@ void add_stack_page (struct intr_frame *f, void* addr)
     lock_release(&cur->element->lock);
     thread_exit();
   }
+
+  // allocate the new page for the stack
   uint8_t *kpage = allocate_page (PAL_ZERO);
 
   if (kpage == NULL)
@@ -33,6 +38,7 @@ void add_stack_page (struct intr_frame *f, void* addr)
     thread_exit();
   }
 
+  // find the frame table entry associated with the page
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
   lock_acquire (&frame_lock);
@@ -59,7 +65,9 @@ void add_stack_page (struct intr_frame *f, void* addr)
   entry->page_no = pg_no(addr);
   entry->writable = true;
   entry->swapped = false;
+
   //entry->reference = 0;
+
 
 
   struct hash_elem* h = hash_insert (&cur->s_page_table, &entry->elem);
@@ -68,7 +76,6 @@ void add_stack_page (struct intr_frame *f, void* addr)
   cur->stack_pages++;
 
   // associate kpage's frame table entry with this SPTE
-
   frame_table[pfn-625]->spte = entry;
   entry->frame_ptr = frame_table[pfn-625];
   frame_table[pfn-625]->pinned = false;
@@ -86,20 +93,17 @@ add_spt_page (struct intr_frame *f, void *addr)
   p.page_no = pg_no (addr);
   p.t = cur;
 
+  // find the associated SPTE
   lock_acquire (&cur->spt_lock);
   e = hash_find (&cur->s_page_table, &p.elem);
   lock_release (&cur->spt_lock);
   if (e == NULL)
   {
-    // printf("KILLING THREAD\n");
-    // printf("addr: %x\n", addr);
-    // printf("instruction ptr: %x\n", f->eip);
     lock_acquire(&cur->element->lock);
     cur->element->exit_status = -1;
     lock_release(&cur->element->lock);
     thread_exit();
   }
-
   lock_acquire (&cur->spt_lock);
   struct page_table_elem* entry = hash_entry(e, struct page_table_elem, elem);
   lock_release (&cur->spt_lock);
@@ -121,6 +125,8 @@ add_spt_page (struct intr_frame *f, void *addr)
     thread_exit();
   }
 
+  // pin the frame that we are going to put the new page into
+  // so that it can't be evicted until we are done with it
   uintptr_t phys_ptr = vtop (kpage);
   uintptr_t pfn = pg_no (phys_ptr);
   lock_acquire (&frame_lock);
@@ -147,21 +153,20 @@ add_spt_page (struct intr_frame *f, void *addr)
     {
       // the thread that page faulted might have faulted while it held the file lock,
       // so we only need to acquire it if we don't already have it
-      // TODO: this issue shows up a couple other places (faulting while we hold a resource that
-      // we need to handle the fault). we need to come up with some way to deal with it that is probably
-      // not this way.
       bool acquired_lock = false;
       if (!lock_held_by_current_thread(&file_lock))
       {
         acquired_lock = true;
         lock_acquire(&file_lock);
       }
+      lock_acquire(&swap_lock);
       lock_acquire(&cur->spt_lock);
       struct file* file = filesys_open(entry->name);
       lock_release(&cur->spt_lock);
       file_seek (file, entry->pos + entry->ofs);
       if (file_read (file, kpage, entry->page_read_bytes) != entry->page_read_bytes)
         {
+          lock_release(&swap_lock);
           if (acquired_lock == true)
             lock_release(&file_lock);
           palloc_free_page (kpage);
@@ -171,6 +176,7 @@ add_spt_page (struct intr_frame *f, void *addr)
           thread_exit();
         }
       file_close(file);
+    lock_release (&swap_lock);
     if (acquired_lock == true)
       lock_release(&file_lock);
     }
@@ -179,6 +185,7 @@ add_spt_page (struct intr_frame *f, void *addr)
     if (!entry->writable)
       pagedir_set_dirty(cur->pagedir, kpage, false);
   }
+  // install the page into the current thread's page directory
   if (!install_new_page (entry->addr, kpage, entry->writable))
     {
       palloc_free_page (kpage);

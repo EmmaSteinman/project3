@@ -214,7 +214,6 @@ int sys_read (int fd, const void *buffer, unsigned size)
       }
     }
   }
-
   return ret;
 }
 
@@ -484,7 +483,7 @@ check_address (void* addr, struct intr_frame *f)
       {
         // if the address should be invalid but it is close to the stack,
         // add a new page to the stack for it
-        if ((int)f->esp - (int)addr <= 32 && (int)f->esp - (int)addr > -100000 && (int)f->esp - (int)addr != 0)
+        if ((int)f->esp - (int)addr <= 32 && (int)f->esp - (int)addr > -131072 && (int)f->esp - (int)addr != 0)
         {
           add_stack_page(f, addr+i);
           return;

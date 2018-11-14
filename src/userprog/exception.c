@@ -158,12 +158,10 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  //printf("fault addr: %x\n", fault_addr);
-
   if (not_present)
   {
     // if the fault address is close to the stack, we need to grow the stack
-    if ((int)f->esp - (int)fault_addr <= 32 && (int)f->esp - (int)fault_addr > -100000 && (int)f->esp - (int)fault_addr != 0)
+    if ((int)f->esp - (int)fault_addr <= 32 && (int)f->esp - (int)fault_addr > -131072 && (int)f->esp - (int)fault_addr != 0)
     {
       add_stack_page (f, fault_addr);
       return;
@@ -175,9 +173,6 @@ page_fault (struct intr_frame *f)
       return;
     }
   }
-  // printf("exception\n");
-  // printf("fault address: %x\n", fault_addr);
-  // printf("fault inst: %x\n", f->eip);
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
