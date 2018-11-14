@@ -28,6 +28,7 @@ struct lock swap_lock;
 struct bitmap* swap_slots;
 int slots_frame;
 
+int current_clock;
 void swap_init (void);
 void* swap_out (void);
 void swap_in (uint8_t* addr, struct page_table_elem* spte);

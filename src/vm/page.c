@@ -59,6 +59,7 @@ void add_stack_page (struct intr_frame *f, void* addr)
   entry->page_no = pg_no(addr);
   entry->writable = true;
   entry->swapped = false;
+  //entry->reference = 0;
 
 
   struct hash_elem* h = hash_insert (&cur->s_page_table, &entry->elem);
