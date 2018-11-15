@@ -99,6 +99,8 @@ thread_init (void)
   list_init (&all_list);
   list_init (&thread_list);
 
+  lock_init (&exit_lock);
+
   //hash_init (&s_page_table, hash_int, hash_less, NULL);
 
   /* Set up a thread structure for the running thread. */
@@ -308,8 +310,6 @@ thread_exit (void)
 {
   ASSERT (!intr_context ());
 
-  // TODO: free the frame table entries associated with this thread?
-
 #ifdef USERPROG
   process_exit ();
 #endif
@@ -342,8 +342,6 @@ thread_exit (void)
       bitmap_set (swap_slots, entry->swap_location, 0);
       free(entry);
     }
-
-
 
   // destroy the supplemental page table
   // the pages associated with this thread's process are freed when we call

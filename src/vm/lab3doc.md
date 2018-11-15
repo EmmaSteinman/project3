@@ -1,4 +1,3 @@
-
 # Project 3 Design Document
 
 > Denison cs372  
@@ -95,6 +94,8 @@ In some cases, we access SPT entries through our frame table. When we allocate a
 
 > A3: How does your code coordinate accessed and dirty bits between
 > kernel and user virtual addresses that alias a single frame, or other aliasing that might occur through sharing?
+
+Whenever we need to check the accessed and/or dirty bit of a frame, we check both the accessed/dirty bit associated with the kernel virtual address that we are checking for and the user virtual address of the page in the frame. We then treat the frame and the user page the same way; for example, if the user page's dirty bit is set but the frame's isn't, we treat both as though the dirty bit is set. This is only used in the `swap_out()` function.
 
 #### SYNCHRONIZATION
 

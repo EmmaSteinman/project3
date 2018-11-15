@@ -1,4 +1,5 @@
 
+
 #include "threads/palloc.h"
 #include <bitmap.h>
 #include <debug.h>
@@ -159,8 +160,11 @@ palloc_free_page (void *page)
   // page is a kernel virtual address
   // get its PFN so that we can free its frame table entry
   uintptr_t phys_ptr = vtop (page);
-  uintptr_t pfn = pg_no (phys_ptr);
-  free (frame_table[pfn-625]);
+  int pfn = pg_no (phys_ptr);
+  if ((pfn-625) > 0)
+  {
+    free (frame_table[pfn-625]);
+  }
 
   palloc_free_multiple (page, 1);
 }

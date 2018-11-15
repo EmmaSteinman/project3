@@ -10,6 +10,8 @@
 #include "../debug.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
+#include "vm/page.h"
+#include "vm/frame.h"
 
 #define list_elem_to_hash_elem(LIST_ELEM)                       \
         list_entry(LIST_ELEM, struct hash_elem, list_elem)
@@ -60,7 +62,7 @@ int hash_func (const struct hash_elem *element, void *aux UNUSED)
 }
 
 /* Frees the hash element for destruction. */
-void destroy_hash (struct hash_elem *element, void *aux)
+void destroy_hash (struct hash_elem *element, void *aux UNUSED)
 {
   free (element);
 }

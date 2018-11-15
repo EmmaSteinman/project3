@@ -21,5 +21,6 @@ struct lock alloc_lock;
 struct lock frame_lock;
 
 void * allocate_page (enum palloc_flags flags);
+void free_page (void* page);
 
 #endif

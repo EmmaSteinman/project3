@@ -36,14 +36,12 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
-
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0); // don't replace with allocate_page because this pulls from kernel pool
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
-
 
   // extract ONLY the file name so we can name the process
   // since strtok_r changes the arg string, we need to make a copy
@@ -54,7 +52,6 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (copy2, file_name, PGSIZE);
   char* fn = strtok_r(copy2, " ", &save_ptr);
-
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (fn, PRI_DEFAULT, start_process, fn_copy);
@@ -110,17 +107,13 @@ start_process (void *file_name_)
   palloc_free_page (file_name);
   if (!success)
   {
-    //palloc_free_page (file_name);
     lock_acquire(&cur->element->lock);
     cur->element->exit_status = -1;
     lock_release(&cur->element->lock);
     sema_up(&cur->element->parent->exec_sema);
     thread_exit ();
   }
-  // struct file * file = filesys_open (file_name);
-  // file_deny_write (file);
   sema_up(&cur->element->parent->exec_sema);
-  //palloc_free_page (file_name);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -197,8 +190,6 @@ process_wait (tid_t child_tid)
   list_remove(&elem->elem); // remove the child thread's element from the list since we have now waited on it
   lock_release(&elem->lock);
   sema_down(&child_thread->process_sema);
-
-
 
   lock_acquire(&elem->lock);
   int status = elem->exit_status;

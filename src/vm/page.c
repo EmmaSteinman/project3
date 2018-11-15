@@ -66,10 +66,6 @@ void add_stack_page (struct intr_frame *f, void* addr)
   entry->writable = true;
   entry->swapped = false;
 
-  //entry->reference = 0;
-
-
-
   struct hash_elem* h = hash_insert (&cur->s_page_table, &entry->elem);
   lock_release (&cur->spt_lock);
 
