@@ -41,7 +41,6 @@ allocate_page (enum palloc_flags flags)
   entry->va_ptr = va_ptr;
   entry->pinned = false;
   entry->spte = NULL;
-  entry->reference = 1;
 
   // add the entry to the frame table at the index of the PFN
   lock_acquire (&frame_lock);

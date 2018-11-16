@@ -77,9 +77,12 @@ In the `thread` struct:
 
 - `struct hash s_page_table;`: the supplemental page table.
 - `struct lock spt_lock;`: a lock used with the supplemental page table to prevent race conditions when we access and change entries of the table.
+- `int stack_pages`: keeps track of how many stack pages have been allocated for the given thread to ensure that the thread does not use more than the set maximum.
+- `struct list swap_table;`: a list of frames belonging to this thread that have been swapped out and written to swap space.
 
-In syscall.c:
-- `void check_page (void* addr)` in syscall.h. Checks that the address of a buffer we are trying to read data into is not in an unwritable page.
+In syscall.h:
+- `void check_page (void* addr)`: checks that the address of a buffer we are trying to read data into is not in an unwritable page.
+- `void release_locks()`: called just before a thread exits to release all of the locks that it holds.
 
 #### ALGORITHMS
 
@@ -136,18 +139,19 @@ In swap.h:
 - `int num_swap_slots;`: the number of swap slots on the `swap_block` devices. Calculated based on the size of `swap_block`, the size of a sector, and the size of a page.
 - `struct bitmap* swap_slots;`: a bitmap that represents the free and used swap slots. Each bit is associated with one swap slot, which is the same size as 1 page (8 sectors) and is 0 when the slot is free and 1 when it is being used by some process.
 - `struct lock swap_lock;`: a lock used to prevent races around swapping.
-
-
+- `int current_clock;`: used with our algorithm for page eviction. Keeps track of where the clock algorithm's "clock hand" is pointing at any given time.
 - `void swap_init (void);`: a function that finds `swap_block`, calculates `num_swap_slots`, and creates `swap_slots`.
 - `void* swap_out (void);`: called when `palloc_get_page()` fails due to a lack of free pages. Finds a frame to evict, saves it to swap space if necessary, and frees the frame so that another process can use it.
 - `void swap_in (uint8_t* addr, struct page_table_elem* spte);`: called when a process tries to access a page that has been swapped out. Uses the address that the process tried to access and the SPT entry associated with that address to figure out where the data we want is in swap space and to load it back into memory.
 
 
-    struct swap_table_elem
-      {
-        struct list_elem elem;
-        int swap_location;
-      };
+```
+struct swap_table_elem
+  {
+    struct list_elem elem;
+    int swap_location;
+  };
+```
 
 A `swap_table_elem` is an element in the swap table. It contains a `list_elem` so that it can be added to the list of swapped pages owned by a particular thread. It also contains an integer that indicates which index of the swap table bitmap is associated with it.
 
