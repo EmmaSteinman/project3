@@ -20,7 +20,6 @@
 
 void swap_init (void)
 {
-  printf("swap\n");
   swap_block = block_get_role(BLOCK_SWAP); // get a pointer to the location of the swap disk
   num_swap_slots = (block_size(swap_block)*BLOCK_SECTOR_SIZE) / PGSIZE; // get the number of swap slots on the swap disk
   swap_slots = bitmap_create(num_swap_slots);
