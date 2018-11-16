@@ -161,6 +161,8 @@ A `swap_table_elem` is an element in the swap table. It contains a `list_elem` s
 > B2: When a frame is required but none is free, some frame must be
 > evicted.  Describe your code for choosing a frame to evict.
 
+We implemented the clock algorithm for evicting frames, which approximates least recently used. When `swap_init()` is called upon startup, `current_clock` is set to 1. This is the first frame that will be checked when searching through the frame table, and will continue to increase after checking each frame. When a frame needs to be evicted, it will check the `current_clock` frame in the frame table and check if it has been accessed recently. If it has, or `pagedir_is_accessed` is true, then it will set it to false and continue to the next entry in the frame table. Once it finds a frame that has not been accessed recently, then it will choose that frame to evict and increment `current_clock`. The next time a frame needs to be evicted, it will check the `current_clock` frame, which will be the next frame in the table, it does not reset to 1 every time. 
+
 > B3: When a process P obtains a frame that was previously used by a
 > process Q, how do you adjust the page table (and any other data
 > structures) to reflect the frame Q no longer has?
